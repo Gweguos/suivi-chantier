@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
+import Plans from './Plans.jsx'
 
 function Login() {
   const [email, setEmail] = useState('')
@@ -39,7 +40,7 @@ function ProjectPage({ project, onBack }) {
       <button className="link" onClick={onBack}>‹ Projets</button>
       <h1>{project.name}</h1>
       {project.description && <p className="muted">{project.description}</p>}
-      <p className="empty">Les plans de ce projet s’afficheront ici à la prochaine étape.</p>
+      <Plans project={project} />
     </main>
   )
 }
