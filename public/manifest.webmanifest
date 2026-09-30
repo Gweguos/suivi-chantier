@@ -1,0 +1,9 @@
+{
+  "name": "Suivi de chantier",
+  "short_name": "Chantier",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef1f3",
+  "theme_color": "#1f2d36",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
