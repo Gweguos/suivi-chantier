@@ -52,3 +52,6 @@ button.link { border: 0; background: none; min-height: 44px; padding: 0 4px; tex
 .tools button { min-width: 48px; }
 .stage { flex: 1; overflow: auto; background: #d9dfe3; }
 .stage canvas { display: block; margin: 0 auto; background: #fff; }
+.item.withthumb { grid-template-columns: 76px 1fr; column-gap: 12px; align-items: center; }
+.thumb { width: 76px; height: 56px; object-fit: cover; background: #d9dfe3; border: 1px solid var(--line); }
+.planimg { display: block; max-width: none; margin: 0 auto; background: #fff; }

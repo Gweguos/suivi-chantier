@@ -1,31 +1,51 @@
 import { useEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
-import { supabase } from './supabase'
+import { fetchPlan } from './cache.js'
 
 export default function Viewer({ plan, onClose }) {
   const versions = [...plan.plan_versions].sort((a, b) => b.created_at.localeCompare(a.created_at))
   const [version, setVersion] = useState(versions.find((v) => v.is_current) || versions[0])
+  const [hd, setHd] = useState(false)
   const [pdf, setPdf] = useState(null)
+  const [imgUrl, setImgUrl] = useState(null)
   const [page, setPage] = useState(1)
   const [zoom, setZoom] = useState(1)
   const [error, setError] = useState('')
   const canvas = useRef(null)
   const box = useRef(null)
+  const hasDisplay = !!(version.display_paths && version.display_paths.length)
+  const useImage = hasDisplay && !hd
+  const pages = version.page_count || 1
+
+  useEffect(() => { setPage(1); setZoom(1); setHd(false); setPdf(null); setImgUrl(null); setError('') }, [version])
+
+  // Aperçu allégé (image) : rapide
+  useEffect(() => {
+    if (!useImage) return
+    let url, off = false
+    setImgUrl(null)
+    fetchPlan(version.display_paths[page - 1])
+      .then((b) => { if (!off) { url = URL.createObjectURL(b); setImgUrl(url) } })
+      .catch(() => { if (!off) setError('Impossible de charger le plan.') })
+    return () => { off = true; if (url) URL.revokeObjectURL(url) }
+  }, [version, page, useImage])
+
+  // Haute définition (PDF d'origine) : à la demande, ou pour les anciens plans sans aperçu
+  useEffect(() => {
+    if (useImage) return
+    let off = false
+    setPdf(null)
+    fetchPlan(version.file_path)
+      .then(async (b) => {
+        const d = await pdfjsLib.getDocument({ data: await b.arrayBuffer() }).promise
+        if (!off) setPdf(d)
+      })
+      .catch(() => { if (!off) setError('Impossible de charger le plan.') })
+    return () => { off = true }
+  }, [version, useImage])
 
   useEffect(() => {
-    let cancelled = false
-    setPdf(null); setError('')
-    ;(async () => {
-      const { data, error } = await supabase.storage.from('plans').download(version.file_path)
-      if (error) { setError('Impossible de charger ce plan.'); return }
-      const doc = await pdfjsLib.getDocument({ data: await data.arrayBuffer() }).promise
-      if (!cancelled) { setPdf(doc); setPage(1); setZoom(1) }
-    })()
-    return () => { cancelled = true }
-  }, [version])
-
-  useEffect(() => {
-    if (!pdf) return
+    if (useImage || !pdf) return
     let task
     ;(async () => {
       const p = await pdf.getPage(page)
@@ -40,7 +60,7 @@ export default function Viewer({ plan, onClose }) {
       try { await task.promise } catch { /* rendu annulé */ }
     })()
     return () => task && task.cancel()
-  }, [pdf, page, zoom])
+  }, [pdf, page, zoom, useImage])
 
   const zoomBy = (f) => setZoom((z) => Math.min(6, Math.max(0.5, z * f)))
 
@@ -57,17 +77,26 @@ export default function Viewer({ plan, onClose }) {
         <button onClick={() => zoomBy(1 / 1.5)} aria-label="Dézoomer">−</button>
         <button onClick={() => setZoom(1)}>Ajuster</button>
         <button onClick={() => zoomBy(1.5)} aria-label="Zoomer">+</button>
-        {pdf && pdf.numPages > 1 && (
+        {pages > 1 && (
           <>
             <button onClick={() => setPage((n) => Math.max(1, n - 1))} disabled={page === 1}>‹</button>
-            <span>{page} / {pdf.numPages}</span>
-            <button onClick={() => setPage((n) => Math.min(pdf.numPages, n + 1))} disabled={page === pdf.numPages}>›</button>
+            <span>{page} / {pages}</span>
+            <button onClick={() => setPage((n) => Math.min(pages, n + 1))} disabled={page === pages}>›</button>
           </>
         )}
+        {hasDisplay && <button onClick={() => setHd((h) => !h)}>{hd ? 'Aperçu' : 'HD'}</button>}
       </div>
       <div className="stage" ref={box}>
-        {error ? <p className="error">{error}</p> : !pdf ? <p className="muted">Chargement du plan…</p> : null}
-        <canvas ref={canvas} />
+        {error && <p className="error">{error}</p>}
+        {useImage ? (
+          imgUrl ? <img className="planimg" src={imgUrl} style={{ width: `${zoom * 100}%` }} alt={plan.name} />
+                 : !error && <p className="muted">Chargement du plan…</p>
+        ) : (
+          <>
+            {!pdf && !error && <p className="muted">Chargement du PDF…</p>}
+            <canvas ref={canvas} />
+          </>
+        )}
       </div>
     </div>
   )
