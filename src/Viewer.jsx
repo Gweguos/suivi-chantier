@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { fetchPlan } from './cache.js'
+
+const MAX_ZOOM = 20     // zoom maximal (multiple de la vue « Ajuster »)
+const IMG_MAX_ZOOM = 2  // au-delà, bascule automatique en haute définition
 
 export default function Viewer({ plan, onClose }) {
   const versions = [...plan.plan_versions].sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -10,12 +13,27 @@ export default function Viewer({ plan, onClose }) {
   const [imgUrl, setImgUrl] = useState(null)
   const [page, setPage] = useState(1)
   const [zoom, setZoom] = useState(1)
+  const [stage, setStage] = useState({ w: 0, h: 0 })
   const [error, setError] = useState('')
-  const canvas = useRef(null)
   const box = useRef(null)
+  const canvas = useRef(null)
+  const pending = useRef(null)
   const hasDisplay = !!(version.display_paths && version.display_paths.length)
   const useImage = hasDisplay && !hd
   const pages = version.page_count || 1
+
+  const size = (version.page_sizes && version.page_sizes[page - 1]) || { w: 1000, h: 700 }
+  const fit = stage.w / size.w
+  const css = fit * zoom
+  const W = size.w * css
+  const H = size.h * css
+
+  useEffect(() => {
+    const el = box.current
+    const ro = new ResizeObserver(() => setStage({ w: el.clientWidth, h: el.clientHeight }))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => { setPage(1); setZoom(1); setHd(false); setPdf(null); setImgUrl(null); setError('') }, [version])
 
@@ -30,7 +48,7 @@ export default function Viewer({ plan, onClose }) {
     return () => { off = true; if (url) URL.revokeObjectURL(url) }
   }, [version, page, useImage])
 
-  // Haute définition (PDF d'origine) : à la demande, ou pour les anciens plans sans aperçu
+  // Haute définition : le PDF d'origine, chargé à la demande
   useEffect(() => {
     if (useImage) return
     let off = false
@@ -44,25 +62,52 @@ export default function Viewer({ plan, onClose }) {
     return () => { off = true }
   }, [version, useImage])
 
+  // Rendu net à tout zoom : seule la partie visible est dessinée, à la bonne résolution
   useEffect(() => {
-    if (useImage || !pdf) return
-    let task
-    ;(async () => {
-      const p = await pdf.getPage(page)
-      const base = p.getViewport({ scale: 1 })
-      const css = (box.current.clientWidth / base.width) * zoom
-      const ratio = Math.min(window.devicePixelRatio || 1, 2, 4096 / (Math.max(base.width, base.height) * css))
-      const vp = p.getViewport({ scale: css * ratio })
+    if (useImage || !pdf || !stage.w) return
+    const st = box.current
+    let task, raf, off = false
+    const draw = async () => {
+      if (task) task.cancel()
       const c = canvas.current
-      c.width = vp.width; c.height = vp.height
-      c.style.width = base.width * css + 'px'; c.style.height = base.height * css + 'px'
+      if (!c) return
+      const p = await pdf.getPage(page)
+      if (off) return
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      const nw = Math.round(Math.min(st.clientWidth, W) * dpr)
+      const nh = Math.round(Math.min(st.clientHeight, H) * dpr)
+      if (c.width !== nw) c.width = nw
+      if (c.height !== nh) c.height = nh
+      c.style.width = nw / dpr + 'px'; c.style.height = nh / dpr + 'px'
+      const vp = p.getViewport({ scale: css * dpr, offsetX: -st.scrollLeft * dpr, offsetY: -st.scrollTop * dpr })
       task = p.render({ canvasContext: c.getContext('2d'), viewport: vp })
       try { await task.promise } catch { /* rendu annulé */ }
-    })()
-    return () => task && task.cancel()
-  }, [pdf, page, zoom, useImage])
+    }
+    const onScroll = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw) }
+    st.addEventListener('scroll', onScroll)
+    draw()
+    return () => { off = true; if (task) task.cancel(); cancelAnimationFrame(raf); st.removeEventListener('scroll', onScroll) }
+  }, [pdf, page, zoom, stage, useImage])
 
-  const zoomBy = (f) => setZoom((z) => Math.min(6, Math.max(0.5, z * f)))
+  // Garde le centre de la vue en place quand on zoome
+  useLayoutEffect(() => {
+    const p = pending.current
+    if (p && box.current) { box.current.scrollLeft = p.x; box.current.scrollTop = p.y; pending.current = null }
+  }, [zoom])
+
+  function zoomTo(nz) {
+    nz = Math.min(MAX_ZOOM, Math.max(0.5, nz))
+    const st = box.current
+    const r = nz / zoom
+    pending.current = nz === 1 ? { x: 0, y: 0 } : {
+      x: (st.scrollLeft + st.clientWidth / 2) * r - st.clientWidth / 2,
+      y: (st.scrollTop + st.clientHeight / 2) * r - st.clientHeight / 2,
+    }
+    if (useImage && nz > IMG_MAX_ZOOM) setHd(true)
+    setZoom(nz)
+  }
+
+  const loading = !error && (useImage ? !imgUrl : !pdf)
 
   return (
     <div className="viewer">
@@ -74,9 +119,10 @@ export default function Viewer({ plan, onClose }) {
         </select>
       </header>
       <div className="tools">
-        <button onClick={() => zoomBy(1 / 1.5)} aria-label="Dézoomer">−</button>
-        <button onClick={() => setZoom(1)}>Ajuster</button>
-        <button onClick={() => zoomBy(1.5)} aria-label="Zoomer">+</button>
+        <button onClick={() => zoomTo(zoom / 1.6)} aria-label="Dézoomer">−</button>
+        <button onClick={() => zoomTo(1)}>Ajuster</button>
+        <button onClick={() => zoomTo(zoom * 1.6)} aria-label="Zoomer">+</button>
+        <span>{Math.round(zoom * 100)} %</span>
         {pages > 1 && (
           <>
             <button onClick={() => setPage((n) => Math.max(1, n - 1))} disabled={page === 1}>‹</button>
@@ -87,16 +133,11 @@ export default function Viewer({ plan, onClose }) {
         {hasDisplay && <button onClick={() => setHd((h) => !h)}>{hd ? 'Aperçu' : 'HD'}</button>}
       </div>
       <div className="stage" ref={box}>
-        {error && <p className="error">{error}</p>}
-        {useImage ? (
-          imgUrl ? <img className="planimg" src={imgUrl} style={{ width: `${zoom * 100}%` }} alt={plan.name} />
-                 : !error && <p className="muted">Chargement du plan…</p>
-        ) : (
-          <>
-            {!pdf && !error && <p className="muted">Chargement du PDF…</p>}
-            <canvas ref={canvas} />
-          </>
-        )}
+        {error && <p className="error msg">{error}</p>}
+        {loading && <p className="muted msg">{useImage ? 'Chargement du plan…' : 'Chargement du PDF haute définition…'}</p>}
+        <div className="sizer" style={{ width: W, height: H }}>
+          {useImage ? (imgUrl && <img src={imgUrl} alt={plan.name} />) : <canvas ref={canvas} />}
+        </div>
       </div>
     </div>
   )

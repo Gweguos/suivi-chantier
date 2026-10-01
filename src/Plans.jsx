@@ -7,25 +7,31 @@ import Viewer from './Viewer.jsx'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
 
-// Réglages de l'aperçu allégé : à ajuster après essais sur vos plans.
-const DISPLAY_MAX = 3000 // taille en pixels du grand côté de l'image d'affichage
-const QUALITY = 0.8      // qualité JPEG (0 à 1)
-const MAX_MB = 50        // limite actuelle du plan gratuit Supabase
+// Niveaux de qualité de l'aperçu (la taille est aussi plafonnée en surface pour rester compatible iPhone).
+const LEVELS = {
+  standard: { label: 'Standard (rapide)', side: 3000, area: 8e6, q: 0.8 },
+  elevee: { label: 'Élevée', side: 4500, area: 14e6, q: 0.82 },
+  maximale: { label: 'Maximale (plus lent)', side: 6000, area: 16e6, q: 0.85 },
+}
+const THUMB = { side: 400, area: 1e9, q: 0.7 }
+const MAX_MB = 50 // limite actuelle du plan gratuit Supabase
 
-async function renderJpeg(page, maxSide, quality) {
+async function renderJpeg(page, lv) {
   const base = page.getViewport({ scale: 1 })
-  const vp = page.getViewport({ scale: maxSide / Math.max(base.width, base.height) })
+  const s = Math.min(lv.side / Math.max(base.width, base.height), Math.sqrt(lv.area / (base.width * base.height)))
+  const vp = page.getViewport({ scale: s })
   const c = document.createElement('canvas')
   c.width = Math.round(vp.width); c.height = Math.round(vp.height)
   const ctx = c.getContext('2d')
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height)
   await page.render({ canvasContext: ctx, viewport: vp }).promise
-  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', quality))
+  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', lv.q))
   c.width = c.height = 0
   return blob
 }
 
-async function importPdf({ project, plan, file, name, label, onProgress }) {
+async function importPdf({ project, plan, file, name, label, quality, onProgress }) {
+  const lv = LEVELS[quality] || LEVELS.standard
   if (file.size > MAX_MB * 1048576) {
     throw new Error(`Fichier trop lourd (${(file.size / 1048576).toFixed(1)} Mo, limite actuelle ${MAX_MB} Mo). Ré-exportez un PDF plus léger.`)
   }
@@ -47,11 +53,11 @@ async function importPdf({ project, plan, file, name, label, onProgress }) {
       const v = page.getViewport({ scale: 1 })
       sizes.push({ w: Math.round(v.width), h: Math.round(v.height) })
       const p = `${base}/p${i}.jpg`
-      await put(p, await renderJpeg(page, DISPLAY_MAX, QUALITY), 'image/jpeg')
+      await put(p, await renderJpeg(page, lv), 'image/jpeg')
       displayPaths.push(p)
       if (i === 1) {
         thumbPath = `${base}/thumb.jpg`
-        await put(thumbPath, await renderJpeg(page, 400, 0.7), 'image/jpeg')
+        await put(thumbPath, await renderJpeg(page, THUMB), 'image/jpeg')
       }
     }
     onProgress('Envoi du PDF d’origine…')
@@ -65,7 +71,7 @@ async function importPdf({ project, plan, file, name, label, onProgress }) {
     const r = await supabase.from('plan_versions').insert({
       id: versionId, project_id: project.id, plan_id: planId, version_label: label,
       file_path: path, file_size: file.size, page_count: pdf.numPages, page_sizes: sizes,
-      display_paths: displayPaths, thumb_path: thumbPath, display_width: DISPLAY_MAX,
+      display_paths: displayPaths, thumb_path: thumbPath, display_width: lv.side,
       previous_version_id: previous ? previous.id : null,
     })
     if (r.error) throw r.error
@@ -93,14 +99,21 @@ function ImportForm({ project, plan, onDone, onCancel }) {
   const [file, setFile] = useState(null)
   const [name, setName] = useState('')
   const [label, setLabel] = useState(plan ? '' : 'A')
+  const [quality, setQuality] = useState(project.display_quality || 'standard')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+
+  function chooseQuality(v) {
+    setQuality(v)
+    // mémorise le choix comme réglage par défaut du projet (ignoré si non autorisé)
+    supabase.from('projects').update({ display_quality: v }).eq('id', project.id).then(() => {}, () => {})
+  }
 
   async function submit(e) {
     e.preventDefault()
     setBusy('Lecture du PDF…'); setError('')
     try {
-      await importPdf({ project, plan, file, name: name.trim(), label: label.trim(), onProgress: setBusy })
+      await importPdf({ project, plan, file, name: name.trim(), label: label.trim(), quality, onProgress: setBusy })
       onDone()
     } catch (err) {
       setError(err.message || 'Import impossible.')
@@ -120,6 +133,11 @@ function ImportForm({ project, plan, onDone, onCancel }) {
       </label>
       {!plan && <label>Nom du plan<input value={name} onChange={(e) => setName(e.target.value)} required /></label>}
       <label>Indice de la version<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="A, B, C…" required /></label>
+      <label>Qualité de l’aperçu
+        <select value={quality} onChange={(e) => chooseQuality(e.target.value)}>
+          {Object.entries(LEVELS).map(([k, l]) => <option key={k} value={k}>{l.label}</option>)}
+        </select>
+      </label>
       {error && <p className="error">{error}</p>}
       {busy && <p className="muted">{busy}</p>}
       <div className="row">

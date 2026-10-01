@@ -55,3 +55,9 @@ button.link { border: 0; background: none; min-height: 44px; padding: 0 4px; tex
 .item.withthumb { grid-template-columns: 76px 1fr; column-gap: 12px; align-items: center; }
 .thumb { width: 76px; height: 56px; object-fit: cover; background: #d9dfe3; border: 1px solid var(--line); }
 .planimg { display: block; max-width: none; margin: 0 auto; background: #fff; }
+.stage { position: relative; }
+.msg { position: absolute; left: 12px; top: 8px; margin: 0; z-index: 1; }
+.sizer { position: relative; margin: 0 auto; background: #fff; }
+.sizer img { display: block; width: 100%; height: 100%; }
+.sizer canvas { position: sticky; top: 0; left: 0; display: block; margin: 0; }
+select { min-height: 48px; font: inherit; border: 1.5px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); padding: 0 8px; }
