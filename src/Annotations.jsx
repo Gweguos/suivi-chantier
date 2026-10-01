@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import { fetchPlan } from './cache.js'
-import { compressPhoto } from './photo.js'
+import { loadBitmap, centerCrop, squareJpeg } from './photo.js'
 
-export const COLORS = { rouge: '#d62828', orange: '#f77f00', bleu: '#1d6fd1', vert: '#2a9d4a' }
-const URGENCY = { low: 'Faible', normal: 'Normale', high: 'Urgente' }
+export const STATUTS = {
+  rouge: { label: 'À reprendre', color: '#d62828' },
+  bleu: { label: 'Demande d’information', color: '#1d6fd1' },
+  vert: { label: 'Conforme', color: '#2a9d4a' },
+}
 const pad = (n) => String(n).padStart(2, '0')
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
 const dayLabel = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR')
@@ -26,9 +29,9 @@ export function useAnnotations(plan, version) {
 
 export function Markers({ annots, hidden, page, onSelect }) {
   return annots.filter((a) => a.page === page && !hidden.has(a.folder_id)).map((a) => (
-    <button key={a.id} className={'marker' + (a.urgency === 'high' ? ' high' : '')} aria-label="Annotation"
-      style={{ left: a.geometry.x * 100 + '%', top: a.geometry.y * 100 + '%', background: COLORS[a.color] || '#d62828' }}
-      onClick={(e) => { e.stopPropagation(); onSelect(a) }}>{a.urgency === 'high' ? '!' : ''}</button>
+    <button key={a.id} className="marker" aria-label="Annotation"
+      style={{ left: a.geometry.x * 100 + '%', top: a.geometry.y * 100 + '%', background: (STATUTS[a.color] || STATUTS.rouge).color }}
+      onClick={(e) => { e.stopPropagation(); onSelect(a) }} />
   ))
 }
 
@@ -57,11 +60,110 @@ function Photo({ path }) {
   return url ? <a href={url} target="_blank" rel="noreferrer"><img src={url} alt="" /></a> : <div className="ph" />
 }
 
+function CropDialog({ file, onDone, onCancel }) {
+  const F = 300
+  const cv = useRef(null)
+  const drag = useRef(null)
+  const [bmp, setBmp] = useState(null)
+  const [z, setZ] = useState(1)
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  const k = bmp ? (F / Math.min(bmp.width, bmp.height)) * z : 1
+
+  useEffect(() => {
+    let off = false
+    loadBitmap(file).then((b) => {
+      if (off) return
+      const k0 = F / Math.min(b.width, b.height)
+      setBmp(b); setZ(1); setPos({ x: (F - b.width * k0) / 2, y: (F - b.height * k0) / 2 })
+    })
+    return () => { off = true }
+  }, [file])
+
+  const clamp = (p, kk) => ({ x: Math.min(0, Math.max(F - bmp.width * kk, p.x)), y: Math.min(0, Math.max(F - bmp.height * kk, p.y)) })
+
+  useEffect(() => {
+    if (!bmp) return
+    const c = cv.current, ctx = c.getContext('2d'), d = c.width / F
+    ctx.clearRect(0, 0, c.width, c.height)
+    ctx.drawImage(bmp, 0, 0, bmp.width, bmp.height, pos.x * d, pos.y * d, bmp.width * k * d, bmp.height * k * d)
+  }, [bmp, k, pos])
+
+  function zoomTo(nz) {
+    const k2 = (F / Math.min(bmp.width, bmp.height)) * nz
+    const cx = (F / 2 - pos.x) / k, cy = (F / 2 - pos.y) / k
+    setZ(nz)
+    setPos(clamp({ x: F / 2 - cx * k2, y: F / 2 - cy * k2 }, k2))
+  }
+
+  return (
+    <div className="modal">
+      <div className="modalbox">
+        <strong>Rogner la photo (carré)</strong>
+        <canvas ref={cv} width={F * 2} height={F * 2} style={{ width: F, height: F, touchAction: 'none' }}
+          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, p: pos } }}
+          onPointerMove={(e) => { if (drag.current && bmp) setPos(clamp({ x: drag.current.p.x + e.clientX - drag.current.x, y: drag.current.p.y + e.clientY - drag.current.y }, k)) }}
+          onPointerUp={() => { drag.current = null }} />
+        <label>Zoom<input type="range" min="1" max="4" step="0.05" value={z} disabled={!bmp} onChange={(e) => zoomTo(Number(e.target.value))} /></label>
+        <p className="muted">Faites glisser la photo pour la cadrer.</p>
+        <div className="row">
+          <button className="primary" disabled={!bmp} onClick={async () => onDone(await squareJpeg(bmp, { sx: -pos.x / k, sy: -pos.y / k, size: F / k }))}>Valider</button>
+          <button onClick={onCancel}>Annuler</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PhotoPicker({ items, setItems }) {
+  const [queue, setQueue] = useState([])
+  const [edit, setEdit] = useState(null)
+  const add = (src, blob) => setItems((l) => [...l, { id: crypto.randomUUID(), src, blob, url: URL.createObjectURL(blob) }])
+
+  async function fromCamera(e) {
+    const f = e.target.files[0]
+    e.target.value = ''
+    if (!f) return
+    const bmp = await loadBitmap(f)
+    add(f, await squareJpeg(bmp, centerCrop(bmp))) // photo prise : carré centré automatique
+  }
+  function fromGallery(e) {
+    setQueue([...e.target.files])
+    e.target.value = ''
+  }
+  const current = edit ? edit.file : queue[0]
+
+  return (
+    <>
+      <div className="row">
+        <label className="btn">Prendre une photo<input type="file" accept="image/*" capture="environment" hidden onChange={fromCamera} /></label>
+        <label className="btn">Importer des photos<input type="file" accept="image/*" multiple hidden onChange={fromGallery} /></label>
+      </div>
+      {items.length > 0 && (
+        <div className="photos">
+          {items.map((it) => (
+            <div key={it.id} className="pending">
+              <img src={it.url} alt="" onClick={() => setEdit({ id: it.id, file: it.src })} />
+              <button type="button" aria-label="Retirer la photo" onClick={() => setItems((l) => l.filter((x) => x.id !== it.id))}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {current && (
+        <CropDialog file={current}
+          onCancel={() => (edit ? setEdit(null) : setQueue((q) => q.slice(1)))}
+          onDone={(blob) => {
+            if (edit) { setItems((l) => l.map((x) => (x.id === edit.id ? { ...x, blob, url: URL.createObjectURL(blob) } : x))); setEdit(null) }
+            else { add(queue[0], blob); setQueue((q) => q.slice(1)) }
+          }} />
+      )}
+    </>
+  )
+}
+
 export function AnnotationSheet({ plan, version, draft, annot, onClose, onSaved }) {
   const [note, setNote] = useState(annot ? annot.note || '' : '')
-  const [color, setColor] = useState(annot ? annot.color : 'rouge')
-  const [urgency, setUrgency] = useState(annot ? annot.urgency : 'normal')
-  const [files, setFiles] = useState([])
+  const [color, setColor] = useState(annot && STATUTS[annot.color] ? annot.color : 'rouge')
+  const [items, setItems] = useState([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const photos = annot ? annot.annotation_photos.filter((p) => !p.deleted_at) : []
@@ -85,17 +187,16 @@ export function AnnotationSheet({ plan, version, draft, annot, onClose, onSaved 
       const id = annot ? annot.id : crypto.randomUUID()
       const text = note.trim() || null
       if (annot) {
-        const r = await supabase.from('annotations').update({ note: text, color, urgency }).eq('id', id)
+        const r = await supabase.from('annotations').update({ note: text, color }).eq('id', id)
         if (r.error) throw r.error
       } else {
         const r = await supabase.from('annotations').insert({
           id, project_id: plan.project_id, folder_id: await getFolder(), plan_version_id: version.id,
-          page: draft.page, kind: 'point', color, urgency, geometry: { x: draft.x, y: draft.y }, note: text,
+          page: draft.page, kind: 'point', color, geometry: { x: draft.x, y: draft.y }, note: text,
         })
         if (r.error) throw r.error
       }
-      for (const f of files) {
-        const blob = await compressPhoto(f)
+      for (const { blob } of items) {
         const path = `${plan.project_id}/${id}/${crypto.randomUUID()}.jpg`
         const up = await supabase.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg' })
         if (up.error) throw up.error
@@ -121,20 +222,15 @@ export function AnnotationSheet({ plan, version, draft, annot, onClose, onSaved 
     <div className="sheet">
       <div className="top"><strong>{annot ? 'Annotation' : 'Nouvelle annotation'}</strong><button onClick={onClose}>Fermer</button></div>
       <label>Remarque<textarea rows="3" value={note} onChange={(e) => setNote(e.target.value)} /></label>
-      <div className="swatches">
-        {Object.entries(COLORS).map(([k, c]) => (
-          <button key={k} type="button" aria-label={k} className={'swatch' + (color === k ? ' on' : '')} style={{ background: c }} onClick={() => setColor(k)} />
+      <div className="statuts">
+        {Object.entries(STATUTS).map(([k, s]) => (
+          <button key={k} type="button" className={'statut' + (color === k ? ' on' : '')} style={{ '--c': s.color }} onClick={() => setColor(k)}>
+            <i />{s.label}
+          </button>
         ))}
       </div>
-      <label>Urgence
-        <select value={urgency} onChange={(e) => setUrgency(e.target.value)}>
-          {Object.entries(URGENCY).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
-      </label>
       {photos.length > 0 && <div className="photos">{photos.map((p) => <Photo key={p.id} path={p.file_path} />)}</div>}
-      <label>Ajouter des photos
-        <input type="file" accept="image/*" multiple onChange={(e) => setFiles([...e.target.files])} />
-      </label>
+      <PhotoPicker items={items} setItems={setItems} />
       {error && <p className="error">{error}</p>}
       <div className="row">
         <button className="primary" disabled={busy} onClick={save}>{busy ? 'Enregistrement…' : 'Enregistrer'}</button>

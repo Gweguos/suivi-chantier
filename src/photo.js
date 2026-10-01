@@ -1,18 +1,22 @@
-// Compression automatique des photos : réduit les dimensions puis cherche la meilleure
-// qualité JPEG qui reste sous la taille cible. Réglages à ajuster ci-dessous.
-const MAX_SIDE = 2000
-const MIN_SIDE = 1280
-const TARGET = 700 * 1024
+// Photos carrées : recadrage + compression automatique.
+// Réglages : côté maximal du carré, taille cible du fichier.
+const SIDE = 1400
+const MIN_SIDE = 900
+const TARGET = 600 * 1024
 
-export async function compressPhoto(file) {
-  if (file.type === 'image/jpeg' && file.size <= TARGET) return file
-  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' })
-  let side = Math.min(MAX_SIDE, Math.max(bmp.width, bmp.height))
+export const loadBitmap = (file) => createImageBitmap(file, { imageOrientation: 'from-image' })
+
+export function centerCrop(bmp) {
+  const size = Math.min(bmp.width, bmp.height)
+  return { sx: (bmp.width - size) / 2, sy: (bmp.height - size) / 2, size }
+}
+
+export async function squareJpeg(bmp, { sx, sy, size }) {
+  let side = Math.min(SIDE, Math.round(size))
   for (;;) {
-    const s = side / Math.max(bmp.width, bmp.height)
     const c = document.createElement('canvas')
-    c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s)
-    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height)
+    c.width = c.height = side
+    c.getContext('2d').drawImage(bmp, sx, sy, size, size, 0, 0, side, side)
     const toBlob = (q) => new Promise((r) => c.toBlob(r, 'image/jpeg', q))
     let lo = 0.6, hi = 0.9, best = null
     for (let i = 0; i < 5; i++) {

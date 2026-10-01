@@ -82,17 +82,20 @@ export default function Viewer({ plan, onClose }) {
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       const nw = Math.round(Math.min(st.clientWidth, W) * dpr)
       const nh = Math.round(Math.min(st.clientHeight, H) * dpr)
-      if (c.width !== nw) c.width = nw
-      if (c.height !== nh) c.height = nh
-      c.style.width = nw / dpr + 'px'; c.style.height = nh / dpr + 'px'
+      const buf = document.createElement('canvas') // dessin hors écran : l'ancien rendu reste visible jusqu'à la fin
+      buf.width = nw; buf.height = nh
       const vp = p.getViewport({ scale: css * dpr, offsetX: -st.scrollLeft * dpr, offsetY: -st.scrollTop * dpr })
-      task = p.render({ canvasContext: c.getContext('2d'), viewport: vp })
-      try { await task.promise } catch { /* rendu annulé */ }
+      task = p.render({ canvasContext: buf.getContext('2d'), viewport: vp })
+      try { await task.promise } catch { return }
+      if (off) return
+      c.width = nw; c.height = nh
+      c.style.width = nw / dpr + 'px'; c.style.height = nh / dpr + 'px'
+      c.getContext('2d').drawImage(buf, 0, 0)
     }
-    const onScroll = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw) }
+    const onScroll = () => { clearTimeout(raf); raf = setTimeout(draw, 90) }
     st.addEventListener('scroll', onScroll)
     draw()
-    return () => { off = true; if (task) task.cancel(); cancelAnimationFrame(raf); st.removeEventListener('scroll', onScroll) }
+    return () => { off = true; if (task) task.cancel(); clearTimeout(raf); st.removeEventListener('scroll', onScroll) }
   }, [pdf, page, zoom, stage, useImage])
 
   // Garde le centre de la vue en place quand on zoome

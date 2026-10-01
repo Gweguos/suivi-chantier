@@ -96,7 +96,7 @@ function Thumb({ path }) {
 }
 
 function ImportForm({ project, plan, onDone, onCancel }) {
-  const [file, setFile] = useState(null)
+  const [files, setFiles] = useState([])
   const [name, setName] = useState('')
   const [label, setLabel] = useState(plan ? '' : 'A')
   const [quality, setQuality] = useState(project.display_quality || 'standard')
@@ -112,26 +112,33 @@ function ImportForm({ project, plan, onDone, onCancel }) {
   async function submit(e) {
     e.preventDefault()
     setBusy('Lecture du PDF…'); setError('')
-    try {
-      await importPdf({ project, plan, file, name: name.trim(), label: label.trim(), quality, onProgress: setBusy })
-      onDone()
-    } catch (err) {
-      setError(err.message || 'Import impossible.')
-      setBusy('')
+    const failed = []
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]
+      const tag = files.length > 1 ? `Plan ${i + 1}/${files.length} · ` : ''
+      try {
+        await importPdf({ project, plan, file: f, name: files.length > 1 ? f.name.replace(/\.pdf$/i, '') : name.trim(), label: label.trim(), quality, onProgress: (m) => setBusy(tag + m) })
+      } catch (err) {
+        failed.push(`${f.name} : ${err.message || 'échec'}`)
+      }
     }
+    setBusy('')
+    if (failed.length) setError('Non importé : ' + failed.join(' ; '))
+    onDone(failed.length === 0)
   }
 
   return (
     <form className="panel" onSubmit={submit}>
       <strong>{plan ? `Nouvelle version de « ${plan.name} »` : 'Importer un plan'}</strong>
-      <label>Fichier PDF
-        <input type="file" accept="application/pdf" required onChange={(e) => {
-          const f = e.target.files[0]
-          setFile(f)
-          if (f && !plan && !name) setName(f.name.replace(/\.pdf$/i, ''))
+      <label>{plan ? 'Fichier PDF' : 'Fichiers PDF (un ou plusieurs)'}
+        <input type="file" accept="application/pdf" multiple={!plan} required onChange={(e) => {
+          const fs = [...e.target.files]
+          setFiles(fs)
+          if (fs.length === 1 && !plan) setName(fs[0].name.replace(/\.pdf$/i, ''))
         }} />
       </label>
-      {!plan && <label>Nom du plan<input value={name} onChange={(e) => setName(e.target.value)} required /></label>}
+      {!plan && files.length <= 1 && <label>Nom du plan<input value={name} onChange={(e) => setName(e.target.value)} required /></label>}
+      {files.length > 1 && <p className="muted">{files.length} plans seront importés, nommés d’après leurs fichiers.</p>}
       <label>Indice de la version<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="A, B, C…" required /></label>
       <label>Qualité de l’aperçu
         <select value={quality} onChange={(e) => chooseQuality(e.target.value)}>
@@ -141,7 +148,7 @@ function ImportForm({ project, plan, onDone, onCancel }) {
       {error && <p className="error">{error}</p>}
       {busy && <p className="muted">{busy}</p>}
       <div className="row">
-        <button className="primary" disabled={!!busy || !file}>Importer</button>
+        <button className="primary" disabled={!!busy || !files.length}>Importer</button>
         <button type="button" onClick={onCancel} disabled={!!busy}>Annuler</button>
       </div>
     </form>
@@ -182,7 +189,7 @@ export default function Plans({ project }) {
     <section className="plans">
       <h2>Plans</h2>
       {form ? (
-        <ImportForm project={project} plan={form.plan} onCancel={() => setForm(null)} onDone={() => { setForm(null); load() }} />
+        <ImportForm project={project} plan={form.plan} onCancel={() => setForm(null)} onDone={(ok) => { if (ok) setForm(null); load() }} />
       ) : (
         <button className="primary" onClick={() => setForm({})}>Importer un plan</button>
       )}
