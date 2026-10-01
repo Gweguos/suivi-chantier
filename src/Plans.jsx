@@ -204,7 +204,7 @@ export default function Plans({ project }) {
                 </button>
                 <div className="row">
                   <button onClick={() => setForm({ plan: p })}>Nouvelle version</button>
-                  <button className="danger" disabled={deleting === p.id} onClick={() => removePlan(p)}>{deleting === p.id ? 'Suppression…' : 'Supprimer'}</button>
+                  <button className="danger icon" disabled={deleting === p.id} onClick={() => removePlan(p)} aria-label="Supprimer le plan" title="Supprimer le plan">{deleting === p.id ? '…' : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>}</button>
                 </div>
               </li>
             )

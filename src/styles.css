@@ -63,3 +63,17 @@ button.link { border: 0; background: none; min-height: 44px; padding: 0 4px; tex
 select { min-height: 48px; font: inherit; border: 1.5px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); padding: 0 8px; }
 .planrow { grid-template-columns: 1fr; }
 button.danger { border-color: var(--error); color: var(--error); }
+.tools { flex-wrap: wrap; }
+.icon { min-width: 48px; padding: 0; display: inline-grid; place-items: center; }
+.hint { margin: 0; padding: 8px 12px; background: var(--signal); font-weight: 600; }
+.days { display: flex; flex-wrap: wrap; gap: 4px 18px; padding: 6px 12px; background: var(--card); border-bottom: 1.5px solid var(--line); }
+.sizer.annotating { cursor: crosshair; }
+button.marker { position: absolute; z-index: 2; width: 30px; height: 30px; min-height: 0; padding: 0; transform: translate(-50%, -50%); border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--ink); color: #fff; font-weight: 800; line-height: 1; }
+button.marker.high { width: 36px; height: 36px; box-shadow: 0 0 0 3px var(--ink); }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; max-height: 75vh; overflow: auto; display: grid; gap: 12px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); background: var(--card); border-top: 3px solid var(--ink); }
+textarea { font: inherit; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); }
+.swatches { display: flex; gap: 12px; }
+button.swatch { width: 48px; padding: 0; border: 3px solid #fff; box-shadow: 0 0 0 1.5px var(--line); border-radius: 50%; }
+button.swatch.on { box-shadow: 0 0 0 3px var(--ink); }
+.photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+.photos img, .photos .ph { width: 100%; height: 110px; object-fit: cover; display: block; background: #d9dfe3; }

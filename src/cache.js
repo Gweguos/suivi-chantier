@@ -4,16 +4,17 @@ import { supabase } from './supabase'
 // la deuxième ouverture est instantanée (et c'est la base du mode hors ligne).
 const NAME = 'plans-v1'
 
-export async function fetchPlan(path) {
+export async function fetchPlan(path, bucket = 'plans') {
+  const key = '/__c/' + (bucket === 'plans' ? '' : bucket + '/') + path
   let cache = null
   try {
     cache = await caches.open(NAME)
-    const hit = await cache.match('/__c/' + path)
+    const hit = await cache.match(key)
     if (hit) return await hit.blob()
   } catch { cache = null }
-  const { data, error } = await supabase.storage.from('plans').download(path)
+  const { data, error } = await supabase.storage.from(bucket).download(path)
   if (error) throw error
-  try { if (cache) await cache.put('/__c/' + path, new Response(data)) } catch { /* cache indisponible */ }
+  try { if (cache) await cache.put(key, new Response(data)) } catch { /* cache indisponible */ }
   return data
 }
 

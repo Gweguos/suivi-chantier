@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { fetchPlan } from './cache.js'
+import { useAnnotations, Markers, AnnotationSheet, DayFilter } from './Annotations.jsx'
 
 const MAX_ZOOM = 20     // zoom maximal (multiple de la vue « Ajuster »)
 
@@ -14,6 +15,12 @@ export default function Viewer({ plan, onClose }) {
   const [zoom, setZoom] = useState(1)
   const [stage, setStage] = useState({ w: 0, h: 0 })
   const [error, setError] = useState('')
+  const { annots, folders, reload } = useAnnotations(plan, version)
+  const [annotate, setAnnotate] = useState(false)
+  const [showAnn, setShowAnn] = useState(true)
+  const [showDays, setShowDays] = useState(false)
+  const [hidden, setHidden] = useState(new Set())
+  const [sheet, setSheet] = useState(null)
   const box = useRef(null)
   const canvas = useRef(null)
   const pending = useRef(null)
@@ -105,6 +112,11 @@ export default function Viewer({ plan, onClose }) {
     setZoom(nz)
   }
 
+  function placePoint(e) {
+    const r = e.currentTarget.getBoundingClientRect()
+    setSheet({ draft: { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, page } })
+  }
+
   const loading = !error && (useImage ? !imgUrl : !pdf)
 
   return (
@@ -128,15 +140,25 @@ export default function Viewer({ plan, onClose }) {
             <button onClick={() => setPage((n) => Math.min(pages, n + 1))} disabled={page === pages}>›</button>
           </>
         )}
+        <button className={annotate ? 'primary' : ''} onClick={() => setAnnotate((a) => !a)}>Annoter</button>
+        <button onClick={() => setShowAnn((s) => !s)}>{showAnn ? 'Masquer' : 'Afficher'}</button>
+        <button onClick={() => setShowDays((s) => !s)}>Jours</button>
         {hasDisplay && <button onClick={() => setHd((h) => !h)}>{hd ? 'Aperçu' : 'HD'}</button>}
       </div>
+      {annotate && <p className="hint">Touchez le plan pour placer un point.</p>}
+      {showDays && <DayFilter folders={folders} annots={annots} hidden={hidden} setHidden={setHidden} />}
       <div className="stage" ref={box}>
         {error && <p className="error msg">{error}</p>}
         {loading && <p className="muted msg">{useImage ? 'Chargement du plan…' : 'Chargement du PDF haute définition…'}</p>}
-        <div className="sizer" style={{ width: W, height: H }}>
+        <div className={'sizer' + (annotate ? ' annotating' : '')} style={{ width: W, height: H }} onClick={annotate ? placePoint : undefined}>
           {useImage ? (imgUrl && <img src={imgUrl} alt={plan.name} />) : <canvas ref={canvas} />}
+          {showAnn && <Markers annots={annots} hidden={hidden} page={page} onSelect={(a) => setSheet({ annot: a })} />}
         </div>
       </div>
+      {sheet && (
+        <AnnotationSheet key={sheet.annot ? sheet.annot.id : 'new'} plan={plan} version={version} draft={sheet.draft} annot={sheet.annot}
+          onClose={() => setSheet(null)} onSaved={() => { setSheet(null); reload() }} />
+      )}
     </div>
   )
 }
