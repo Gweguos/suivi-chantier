@@ -61,3 +61,5 @@ button.link { border: 0; background: none; min-height: 44px; padding: 0 4px; tex
 .sizer img { display: block; width: 100%; height: 100%; }
 .sizer canvas { position: sticky; top: 0; left: 0; display: block; margin: 0; }
 select { min-height: 48px; font: inherit; border: 1.5px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); padding: 0 8px; }
+.planrow { grid-template-columns: 1fr; }
+button.danger { border-color: var(--error); color: var(--error); }

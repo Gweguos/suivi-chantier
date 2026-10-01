@@ -16,3 +16,11 @@ export async function fetchPlan(path) {
   try { if (cache) await cache.put('/__c/' + path, new Response(data)) } catch { /* cache indisponible */ }
   return data
 }
+
+// Efface du cache de l'appareil les fichiers d'un plan supprimé
+export async function forgetPlan(paths) {
+  try {
+    const c = await caches.open(NAME)
+    await Promise.all(paths.map((p) => c.delete('/__c/' + p)))
+  } catch { /* cache indisponible */ }
+}

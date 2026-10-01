@@ -3,7 +3,6 @@ import * as pdfjsLib from 'pdfjs-dist'
 import { fetchPlan } from './cache.js'
 
 const MAX_ZOOM = 20     // zoom maximal (multiple de la vue « Ajuster »)
-const IMG_MAX_ZOOM = 2  // au-delà, bascule automatique en haute définition
 
 export default function Viewer({ plan, onClose }) {
   const versions = [...plan.plan_versions].sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -103,7 +102,6 @@ export default function Viewer({ plan, onClose }) {
       x: (st.scrollLeft + st.clientWidth / 2) * r - st.clientWidth / 2,
       y: (st.scrollTop + st.clientHeight / 2) * r - st.clientHeight / 2,
     }
-    if (useImage && nz > IMG_MAX_ZOOM) setHd(true)
     setZoom(nz)
   }
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.js?url'
 import { supabase } from './supabase'
-import { fetchPlan } from './cache.js'
+import { fetchPlan, forgetPlan } from './cache.js'
 import Viewer from './Viewer.jsx'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
@@ -153,6 +153,7 @@ export default function Plans({ project }) {
   const [error, setError] = useState('')
   const [form, setForm] = useState(null)
   const [open, setOpen] = useState(null)
+  const [deleting, setDeleting] = useState(null)
 
   async function load() {
     const { data, error } = await supabase.from('plans').select('*, plan_versions(*)').eq('project_id', project.id).order('name')
@@ -160,6 +161,22 @@ export default function Plans({ project }) {
     else setPlans(data)
   }
   useEffect(() => { load() }, [])
+
+  async function removePlan(p) {
+    const n = p.plan_versions.length
+    if (!window.confirm(`Supprimer définitivement le plan « ${p.name} » et ses ${n} version${n > 1 ? 's' : ''} ?\nLes annotations associées seront aussi supprimées. Cette action est irréversible.`)) return
+    setDeleting(p.id); setError('')
+    const paths = p.plan_versions.flatMap((v) => [v.file_path, v.thumb_path, ...(v.display_paths || [])]).filter(Boolean)
+    const { data, error } = await supabase.from('plans').delete().eq('id', p.id).select()
+    if (error || !data || data.length === 0) {
+      setError('Suppression impossible : elle est réservée aux administrateurs du projet.')
+    } else {
+      if (paths.length) await supabase.storage.from('plans').remove(paths)
+      await forgetPlan(paths)
+    }
+    setDeleting(null)
+    load()
+  }
 
   return (
     <section className="plans">
@@ -185,7 +202,10 @@ export default function Plans({ project }) {
                     <small>{cur ? `Indice ${cur.version_label} · ${cur.page_count} page${cur.page_count > 1 ? 's' : ''}` : 'Sans fichier'} · {p.plan_versions.length} version{p.plan_versions.length > 1 ? 's' : ''}</small>
                   </div>
                 </button>
-                <button onClick={() => setForm({ plan: p })}>Nouvelle version</button>
+                <div className="row">
+                  <button onClick={() => setForm({ plan: p })}>Nouvelle version</button>
+                  <button className="danger" disabled={deleting === p.id} onClick={() => removePlan(p)}>{deleting === p.id ? 'Suppression…' : 'Supprimer'}</button>
+                </div>
               </li>
             )
           })}
