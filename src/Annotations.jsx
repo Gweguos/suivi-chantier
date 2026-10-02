@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import { fetchPlan } from './cache.js'
-import { IconButton, TrashIcon, PencilIcon } from './ui.jsx'
+import { IconButton, TrashIcon, PencilIcon, CameraIcon } from './ui.jsx'
 import { loadBitmap, centerCrop, squareJpeg } from './photo.js'
 
 export const STATUTS = {
@@ -16,27 +16,41 @@ const dayLabel = (s) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR')
 export function useAnnotations(plan, version) {
   const [annots, setAnnots] = useState([])
   const [folders, setFolders] = useState([])
+  const [probs, setProbs] = useState([])
   const reload = useCallback(async () => {
-    const [a, f] = await Promise.all([
+    const [a, f, p] = await Promise.all([
       supabase.from('annotations').select('*, annotation_photos(*)').eq('plan_version_id', version.id).is('deleted_at', null).order('created_at'),
-      supabase.from('annotation_folders').select('*').eq('plan_id', plan.id).order('folder_date', { ascending: false }),
+      supabase.from('annotation_folders').select('*').eq('plan_id', plan.id),
+      supabase.from('problematiques').select('*').or(`project_id.is.null,project_id.eq.${plan.project_id}`),
     ])
     if (a.data) setAnnots(a.data)
     if (f.data) setFolders([...f.data].sort((x, y) => layerName(x).localeCompare(layerName(y), 'fr', { numeric: true })))
-  }, [plan.id, version.id])
+    if (p.data) setProbs([...p.data].sort((x, y) => x.name.localeCompare(y.name, 'fr')))
+  }, [plan.id, plan.project_id, version.id])
   useEffect(() => { reload() }, [reload])
-  return { annots, folders, reload }
+  return { annots, folders, probs, reload }
 }
 
 export function Markers({ annots, hidden, page, onSelect }) {
-  return annots.filter((a) => a.page === page && !hidden.has(a.folder_id)).map((a) => (
-    <button key={a.id} className="marker" aria-label="Annotation"
-      style={{ left: a.geometry.x * 100 + '%', top: a.geometry.y * 100 + '%', background: (STATUTS[a.color] || STATUTS.rouge).color }}
-      onClick={(e) => { e.stopPropagation(); onSelect(a) }} />
-  ))
+  return annots.filter((a) => a.geometry && a.page === page && !hidden.has(a.folder_id)).map((a) => {
+    const pos = { left: a.geometry.x * 100 + '%', top: a.geometry.y * 100 + '%' }
+    const click = (e) => { e.stopPropagation(); onSelect(a) }
+    return a.kind === 'photo' ? (
+      <button key={a.id} className="marker photo" aria-label="Photos" style={pos} onClick={click}><CameraIcon width="16" height="16" /></button>
+    ) : (
+      <button key={a.id} className="marker" aria-label="Annotation" style={{ ...pos, background: (STATUTS[a.color] || STATUTS.rouge).color }} onClick={click} />
+    )
+  })
 }
 
 const layerName = (f) => f.name || 'Visite du ' + dayLabel(f.folder_date)
+
+async function createProb(plan, name) {
+  const id = crypto.randomUUID()
+  const r = await supabase.from('problematiques').insert({ id, project_id: plan.project_id, name })
+  if (r.error) throw r.error
+  return id
+}
 
 async function createLayer(plan, name) {
   const id = crypto.randomUUID()
@@ -83,30 +97,38 @@ export function DayFilter({ plan, folders, annots, hidden, setHidden, reload }) 
   )
 }
 
-export function AnnotationList({ annots, folders, hidden, onSelect }) {
-  const shown = annots.filter((a) => !hidden.has(a.folder_id))
+export function AnnotationList({ annots, folders, probs, hidden, onSelect, onGlobal }) {
+  const [by, setBy] = useState('statut')
+  const shown = annots.filter((a) => a.kind !== 'photo' && !hidden.has(a.folder_id))
   const layer = (id) => { const f = folders.find((x) => x.id === id); return f ? layerName(f) : '' }
+  const cmp = (a, b) => layer(a.folder_id).localeCompare(layer(b.folder_id), 'fr', { numeric: true })
+  const row = (a) => {
+    const n = a.annotation_photos.filter((p) => !p.deleted_at).length
+    return (
+      <button key={a.id} className="annrow" onClick={() => onSelect(a)}>
+        <strong><i className="dot" style={{ background: (STATUTS[a.color] || STATUTS.rouge).color }} />{a.note || 'Sans remarque'}</strong>
+        <small>{layer(a.folder_id)}{a.kind === 'global' ? ' · globale' : ` · page ${a.page}`}{n ? ` · ${n} photo${n > 1 ? 's' : ''}` : ''}</small>
+      </button>
+    )
+  }
+  const groups = by === 'statut'
+    ? Object.entries(STATUTS).map(([k, s]) => ({ key: k, title: s.label, color: s.color, list: shown.filter((a) => (STATUTS[a.color] ? a.color : 'rouge') === k) }))
+    : [...probs.map((p) => ({ key: p.id, title: p.name, list: shown.filter((a) => a.problematique_id === p.id) })),
+       { key: 'none', title: 'Sans problématique', list: shown.filter((a) => !a.problematique_id) }].filter((g) => g.list.length)
   return (
     <div className="annlist">
-      {Object.entries(STATUTS).map(([k, s]) => {
-        const list = shown
-          .filter((a) => (STATUTS[a.color] ? a.color : 'rouge') === k)
-          .sort((a, b) => layer(a.folder_id).localeCompare(layer(b.folder_id), 'fr', { numeric: true }))
-        return (
-          <section key={k}>
-            <h3 style={{ '--c': s.color }}><i />{s.label} ({list.length})</h3>
-            {list.length === 0 ? <p className="muted">Aucune</p> : list.map((a) => {
-              const n = a.annotation_photos.filter((p) => !p.deleted_at).length
-              return (
-                <button key={a.id} className="annrow" onClick={() => onSelect(a)}>
-                  <strong>{a.note || 'Sans remarque'}</strong>
-                  <small>{layer(a.folder_id)} · page {a.page}{n ? ` · ${n} photo${n > 1 ? 's' : ''}` : ''}</small>
-                </button>
-              )
-            })}
-          </section>
-        )
-      })}
+      <div className="row">
+        <button className={by === 'statut' ? 'primary' : ''} onClick={() => setBy('statut')}>Par statut</button>
+        <button className={by === 'prob' ? 'primary' : ''} onClick={() => setBy('prob')}>Par problématique</button>
+      </div>
+      <button onClick={onGlobal}>+ Annotation globale</button>
+      {groups.length === 0 && <p className="muted">Aucune annotation.</p>}
+      {groups.map((g) => (
+        <section key={g.key}>
+          <h3 style={{ '--c': g.color }}>{g.color && <i />}{g.title} ({g.list.length})</h3>
+          {g.list.length === 0 ? <p className="muted">Aucune</p> : [...g.list].sort(cmp).map(row)}
+        </section>
+      ))}
     </div>
   )
 }
@@ -221,10 +243,12 @@ function PhotoPicker({ items, setItems }) {
   )
 }
 
-export function AnnotationSheet({ plan, version, draft, annot, folders, activeFolder, onLayer, reload, onClose, onSaved }) {
+export function AnnotationSheet({ plan, version, draft, annot, folders, probs, activeFolder, onLayer, reload, onClose, onSaved }) {
   const [note, setNote] = useState(annot ? annot.note || '' : '')
   const [color, setColor] = useState(annot && STATUTS[annot.color] ? annot.color : 'rouge')
   const [items, setItems] = useState([])
+  const isPhoto = annot ? annot.kind === 'photo' : !!(draft && draft.photo)
+  const [probId, setProbId] = useState(annot && annot.problematique_id ? annot.problematique_id : '')
   const [folderId, setFolderId] = useState(annot ? annot.folder_id : (folders.some((f) => f.id === activeFolder) ? activeFolder : (folders[0] && folders[0].id) || ''))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -235,14 +259,17 @@ export function AnnotationSheet({ plan, version, draft, annot, folders, activeFo
     try {
       const id = annot ? annot.id : crypto.randomUUID()
       const text = note.trim() || null
+      if (isPhoto && !annot && items.length === 0) throw new Error('Ajoutez au moins une photo.')
       const fid = folderId || (await createLayer(plan, 'Calque 1'))
       if (annot) {
-        const r = await supabase.from('annotations').update({ note: text, color, folder_id: fid }).eq('id', id)
+        const r = await supabase.from('annotations').update(isPhoto ? { folder_id: fid } : { note: text, color, folder_id: fid, problematique_id: probId || null }).eq('id', id)
         if (r.error) throw r.error
       } else {
         const r = await supabase.from('annotations').insert({
           id, project_id: plan.project_id, folder_id: fid, plan_version_id: version.id,
-          page: draft.page, kind: 'point', color, geometry: { x: draft.x, y: draft.y }, note: text,
+          page: draft.page || 1, kind: draft.global ? 'global' : isPhoto ? 'photo' : 'point', color,
+          geometry: draft.global ? null : { x: draft.x, y: draft.y },
+          note: isPhoto ? null : text, problematique_id: isPhoto ? null : probId || null,
         })
         if (r.error) throw r.error
       }
@@ -271,8 +298,9 @@ export function AnnotationSheet({ plan, version, draft, annot, folders, activeFo
 
   return (
     <div className="sheet">
-      <div className="top"><strong>{annot ? 'Annotation' : 'Nouvelle annotation'}</strong><button onClick={onClose}>Fermer</button></div>
-      <label>Remarque<textarea rows="3" value={note} onChange={(e) => setNote(e.target.value)} /></label>
+      <div className="top"><strong>{isPhoto ? 'Photos' : annot ? 'Annotation' : draft && draft.global ? 'Annotation globale' : 'Nouvelle annotation'}</strong><button onClick={onClose}>Fermer</button></div>
+      {!isPhoto && <label>Remarque<textarea rows="3" value={note} onChange={(e) => setNote(e.target.value)} /></label>}
+      {!isPhoto && (
       <div className="statuts">
         {Object.entries(STATUTS).map(([k, s]) => (
           <button key={k} type="button" className={'statut' + (color === k ? ' on' : '')} style={{ '--c': s.color }} onClick={() => setColor(k)}>
@@ -280,7 +308,22 @@ export function AnnotationSheet({ plan, version, draft, annot, folders, activeFo
           </button>
         ))}
       </div>
+      )}
       {photos.length > 0 && <div className="photos">{photos.map((p) => <Photo key={p.id} path={p.file_path} />)}</div>}
+      {!isPhoto && (
+        <label>Problématique
+          <select value={probId} onChange={async (e) => {
+            if (e.target.value !== '__new') { setProbId(e.target.value); return }
+            const n = window.prompt('Nom de la nouvelle problématique (propre à ce projet)')
+            if (!n || !n.trim()) return
+            try { const id = await createProb(plan, n.trim()); await reload(); setProbId(id) } catch { setError('Création de la problématique impossible.') }
+          }}>
+            <option value="">Aucune</option>
+            {probs.map((p) => <option key={p.id} value={p.id}>{p.name}{p.project_id ? ' (projet)' : ''}</option>)}
+            <option value="__new">+ Nouvelle problématique…</option>
+          </select>
+        </label>
+      )}
       <label>Calque
         <select value={folderId} onChange={async (e) => {
           if (e.target.value !== '__new') { setFolderId(e.target.value); return }

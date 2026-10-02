@@ -13,3 +13,4 @@ export function IconButton({ label, danger, onClick, disabled, children }) {
     </button>
   )
 }
+export const CameraIcon = icon('M4 8h3l2-3h6l2 3h3v11H4zM12 17a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z')

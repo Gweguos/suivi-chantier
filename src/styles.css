@@ -145,3 +145,10 @@ button.marker { width: 22px; height: 22px; border-width: 2px; }
   .icon { min-width: 34px; }
   .photos { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
 }
+
+/* ---------- Problématiques, photos, annotations globales ---------- */
+.hint { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hint button { min-height: 30px; }
+i.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.annlist .row button { flex: 1; }
+button.marker.photo { display: grid; place-items: center; width: 28px; height: 28px; background: #fff; color: var(--ink); border: 2px solid var(--ink); box-shadow: none; }

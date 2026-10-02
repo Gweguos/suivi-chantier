@@ -4,6 +4,7 @@ import { fetchPlan } from './cache.js'
 import { supabase } from './supabase'
 import { LEVELS, THUMB, renderJpeg } from './preview.js'
 import { useMeasure } from './Measure.jsx'
+import { CameraIcon } from './ui.jsx'
 import { useAnnotations, Markers, AnnotationSheet, DayFilter, AnnotationList } from './Annotations.jsx'
 
 const HD_MAX_DPR = 1.5  // finesse du rendu HD (plus bas = plus rapide)
@@ -19,8 +20,9 @@ export default function Viewer({ plan, onClose, onChanged }) {
   const [zoom, setZoom] = useState(1)
   const [stage, setStage] = useState({ w: 0, h: 0 })
   const [error, setError] = useState('')
-  const { annots, folders, reload } = useAnnotations(plan, version)
+  const { annots, folders, probs, reload } = useAnnotations(plan, version)
   const [annotate, setAnnotate] = useState(false)
+  const [photoMode, setPhotoMode] = useState(false)
   const [showAnn, setShowAnn] = useState(true)
   const [showDays, setShowDays] = useState(false)
   const [hidden, setHidden] = useState(new Set())
@@ -205,6 +207,7 @@ export default function Viewer({ plan, onClose, onChanged }) {
   function focusAnnot(a) {
     setSheet({ annot: a })
     if (!window.matchMedia('(min-width: 900px)').matches) setListOpen(false)
+    if (!a.geometry) return
     if (a.page !== page) { setPage(a.page); return }
     const st = box.current
     st.scrollLeft = a.geometry.x * W - st.clientWidth / 2
@@ -248,7 +251,7 @@ export default function Viewer({ plan, onClose, onChanged }) {
   function placePoint(e) {
     if (moved.current) return
     const r = e.currentTarget.getBoundingClientRect()
-    setSheet({ draft: { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, page } })
+    setSheet({ draft: { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, page, photo: photoMode } })
   }
 
   const loading = !error && (useImage ? !imgUrl : !pdf)
@@ -274,15 +277,21 @@ export default function Viewer({ plan, onClose, onChanged }) {
             <button onClick={() => setPage((n) => Math.min(pages, n + 1))} disabled={page === pages}>›</button>
           </>
         )}
-        <button className={annotate ? 'primary' : ''} onClick={() => { setAnnotate((a) => !a); measure.setOn(false) }}>Annoter</button>
-        <button className={measure.on ? 'primary' : ''} onClick={() => { measure.setOn(!measure.on); setAnnotate(false) }}>Mesure</button>
+        <button className={annotate ? 'primary' : ''} onClick={() => { setAnnotate((a) => !a); setPhotoMode(false); measure.setOn(false) }}>Annoter</button>
+        <button className={photoMode ? 'primary' : ''} aria-label="Placer une photo" title="Placer une photo" onClick={() => { setPhotoMode((p) => !p); setAnnotate(false); measure.setOn(false) }}><CameraIcon width="18" height="18" /></button>
+        <button className={measure.on ? 'primary' : ''} onClick={() => { measure.setOn(!measure.on); setAnnotate(false); setPhotoMode(false) }}>Mesure</button>
         <button onClick={() => setShowAnn((s) => !s)}>{showAnn ? 'Masquer' : 'Afficher'}</button>
         <button onClick={() => setShowDays((s) => !s)}>Calques</button>
         <button onClick={() => setListOpen((o) => !o)}>Liste</button>
         {hasDisplay && <button onClick={() => setHd((h) => !h)}>{hd ? 'Aperçu' : 'HD'}</button>}
         {!hasDisplay && pdf && <button onClick={makePreview} disabled={building}>Créer l’aperçu</button>}
       </div>
-      {annotate && <p className="hint">Touchez le plan pour placer un point.</p>}
+      {(annotate || photoMode) && (
+        <div className="hint">
+          <span>{photoMode ? 'Touchez le plan pour placer une photo.' : 'Touchez le plan pour placer un point.'}</span>
+          {annotate && <button onClick={() => setSheet({ draft: { global: true } })}>Annotation globale</button>}
+        </div>
+      )}
       {measure.panel}
       {showDays && <DayFilter plan={plan} folders={folders} annots={annots} hidden={hidden} setHidden={setHidden} reload={reload} />}
       <div className="body">
@@ -293,7 +302,7 @@ export default function Viewer({ plan, onClose, onChanged }) {
         {!useImage && drawing && !loading && !error && <p className="muted msg">Rendu en cours…</p>}
         {building && <p className="muted msg">Création de l’aperçu…</p>}
         </div>
-        <div className={'sizer' + (annotate || measure.on ? ' annotating' : '')} style={{ width: W, height: H }} onClick={annotate ? placePoint : measure.on ? placeMeasure : undefined}>
+        <div className={'sizer' + (annotate || photoMode || measure.on ? ' annotating' : '')} style={{ width: W, height: H }} onClick={annotate || photoMode ? placePoint : measure.on ? placeMeasure : undefined}>
           {hasDisplay && imgUrl && <img src={imgUrl} alt={plan.name} />}
           {!useImage && <canvas ref={canvas} />}
           {measure.overlay}
@@ -303,12 +312,13 @@ export default function Viewer({ plan, onClose, onChanged }) {
       {listOpen && (
         <aside className="side">
           <div className="top"><strong>Annotations</strong><button onClick={() => setListOpen(false)}>Fermer</button></div>
-          <AnnotationList annots={annots} folders={folders} hidden={hidden} onSelect={focusAnnot} />
+          <AnnotationList annots={annots} folders={folders} probs={probs} hidden={hidden} onSelect={focusAnnot}
+            onGlobal={() => { setSheet({ draft: { global: true } }); if (!window.matchMedia('(min-width: 900px)').matches) setListOpen(false) }} />
         </aside>
       )}
       </div>
       {sheet && (
-        <AnnotationSheet key={sheet.annot ? sheet.annot.id : 'new'} plan={plan} version={version} draft={sheet.draft} annot={sheet.annot} folders={folders} activeFolder={activeFolder} onLayer={setActiveFolder} reload={reload}
+        <AnnotationSheet key={sheet.annot ? sheet.annot.id : 'new' + JSON.stringify(sheet.draft)} plan={plan} version={version} draft={sheet.draft} annot={sheet.annot} folders={folders} probs={probs} activeFolder={activeFolder} onLayer={setActiveFolder} reload={reload}
           onClose={() => setSheet(null)} onSaved={() => { setSheet(null); reload() }} />
       )}
     </div>
