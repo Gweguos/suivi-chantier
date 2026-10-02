@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { fetchPlan } from './cache.js'
-import { useAnnotations, Markers, AnnotationSheet, DayFilter } from './Annotations.jsx'
+import { useAnnotations, Markers, AnnotationSheet, DayFilter, AnnotationList } from './Annotations.jsx'
 
 const MAX_ZOOM = 20     // zoom maximal (multiple de la vue « Ajuster »)
 
@@ -21,6 +21,10 @@ export default function Viewer({ plan, onClose }) {
   const [showDays, setShowDays] = useState(false)
   const [hidden, setHidden] = useState(new Set())
   const [sheet, setSheet] = useState(null)
+  const [listOpen, setListOpen] = useState(() => window.matchMedia('(min-width: 900px)').matches)
+  const ptrs = useRef(new Map())
+  const moved = useRef(false)
+  const zoomRef = useRef(1)
   const box = useRef(null)
   const canvas = useRef(null)
   const pending = useRef(null)
@@ -104,18 +108,82 @@ export default function Viewer({ plan, onClose }) {
     if (p && box.current) { box.current.scrollLeft = p.x; box.current.scrollTop = p.y; pending.current = null }
   }, [zoom])
 
-  function zoomTo(nz) {
-    nz = Math.min(MAX_ZOOM, Math.max(0.5, nz))
+  useEffect(() => { zoomRef.current = zoom }, [zoom])
+
+  // Zoom (ancré sur un point de la vue) et/ou déplacement
+  function view({ z, ax, ay, dx = 0, dy = 0 }) {
     const st = box.current
-    const r = nz / zoom
-    pending.current = nz === 1 ? { x: 0, y: 0 } : {
-      x: (st.scrollLeft + st.clientWidth / 2) * r - st.clientWidth / 2,
-      y: (st.scrollTop + st.clientHeight / 2) * r - st.clientHeight / 2,
+    const nz = Math.min(MAX_ZOOM, Math.max(0.5, z === undefined ? zoomRef.current : z))
+    const r = nz / zoomRef.current
+    const cur = pending.current || { x: st.scrollLeft, y: st.scrollTop }
+    const px = ax === undefined ? st.clientWidth / 2 : ax
+    const py = ay === undefined ? st.clientHeight / 2 : ay
+    const x = (cur.x + px) * r - px - dx
+    const y = (cur.y + py) * r - py - dy
+    zoomRef.current = nz
+    if (r === 1) { st.scrollLeft = x; st.scrollTop = y; pending.current = null }
+    else { pending.current = { x, y }; setZoom(nz) }
+  }
+  function fitView() {
+    const st = box.current
+    pending.current = { x: 0, y: 0 }
+    zoomRef.current = 1
+    if (zoom === 1) { st.scrollLeft = 0; st.scrollTop = 0; pending.current = null } else setZoom(1)
+  }
+
+  // Molette = zoom au curseur (sur ordinateur)
+  useEffect(() => {
+    const st = box.current
+    const onWheel = (e) => {
+      e.preventDefault()
+      const rect = st.getBoundingClientRect()
+      view({ z: zoomRef.current * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), ax: e.clientX - rect.left, ay: e.clientY - rect.top })
     }
-    setZoom(nz)
+    st.addEventListener('wheel', onWheel, { passive: false })
+    return () => st.removeEventListener('wheel', onWheel)
+  }, [])
+
+  // Glisser = déplacer (souris, clic molette, un doigt) ; deux doigts = zoom + déplacement
+  function onPointerDown(e) {
+    if (e.target.closest('.marker')) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    moved.current = false
+  }
+  function onPointerMove(e) {
+    const m = ptrs.current
+    const prev = m.get(e.pointerId)
+    if (!prev) return
+    const next = { x: e.clientX, y: e.clientY }
+    if (m.size === 1) {
+      const dx = next.x - prev.x, dy = next.y - prev.y
+      if (!moved.current && Math.hypot(dx, dy) < 4) return
+      moved.current = true
+      m.set(e.pointerId, next)
+      view({ dx, dy })
+    } else if (m.size === 2) {
+      const other = [...m.entries()].find(([id]) => id !== e.pointerId)[1]
+      const d0 = Math.hypot(prev.x - other.x, prev.y - other.y) || 1
+      const d1 = Math.hypot(next.x - other.x, next.y - other.y)
+      const rect = box.current.getBoundingClientRect()
+      moved.current = true
+      m.set(e.pointerId, next)
+      view({ z: zoomRef.current * (d1 / d0), ax: (next.x + other.x) / 2 - rect.left, ay: (next.y + other.y) / 2 - rect.top, dx: (next.x - prev.x) / 2, dy: (next.y - prev.y) / 2 })
+    }
+  }
+  const onPointerUp = (e) => { ptrs.current.delete(e.pointerId) }
+
+  function focusAnnot(a) {
+    setSheet({ annot: a })
+    if (!window.matchMedia('(min-width: 900px)').matches) setListOpen(false)
+    if (a.page !== page) { setPage(a.page); return }
+    const st = box.current
+    st.scrollLeft = a.geometry.x * W - st.clientWidth / 2
+    st.scrollTop = a.geometry.y * H - st.clientHeight / 2
   }
 
   function placePoint(e) {
+    if (moved.current) return
     const r = e.currentTarget.getBoundingClientRect()
     setSheet({ draft: { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, page } })
   }
@@ -132,9 +200,9 @@ export default function Viewer({ plan, onClose }) {
         </select>
       </header>
       <div className="tools">
-        <button onClick={() => zoomTo(zoom / 1.6)} aria-label="Dézoomer">−</button>
-        <button onClick={() => zoomTo(1)}>Ajuster</button>
-        <button onClick={() => zoomTo(zoom * 1.6)} aria-label="Zoomer">+</button>
+        <button onClick={() => view({ z: zoom / 1.6 })} aria-label="Dézoomer">−</button>
+        <button onClick={fitView}>Ajuster</button>
+        <button onClick={() => view({ z: zoom * 1.6 })} aria-label="Zoomer">+</button>
         <span>{Math.round(zoom * 100)} %</span>
         {pages > 1 && (
           <>
@@ -145,18 +213,27 @@ export default function Viewer({ plan, onClose }) {
         )}
         <button className={annotate ? 'primary' : ''} onClick={() => setAnnotate((a) => !a)}>Annoter</button>
         <button onClick={() => setShowAnn((s) => !s)}>{showAnn ? 'Masquer' : 'Afficher'}</button>
-        <button onClick={() => setShowDays((s) => !s)}>Jours</button>
+        <button onClick={() => setShowDays((s) => !s)}>Visite</button>
+        <button onClick={() => setListOpen((o) => !o)}>Liste</button>
         {hasDisplay && <button onClick={() => setHd((h) => !h)}>{hd ? 'Aperçu' : 'HD'}</button>}
       </div>
       {annotate && <p className="hint">Touchez le plan pour placer un point.</p>}
-      {showDays && <DayFilter folders={folders} annots={annots} hidden={hidden} setHidden={setHidden} />}
-      <div className="stage" ref={box}>
+      {showDays && <DayFilter folders={folders} annots={annots} hidden={hidden} setHidden={setHidden} reload={reload} />}
+      <div className="body">
+      <div className="stage" ref={box} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onMouseDown={(e) => e.button === 1 && e.preventDefault()}>
         {error && <p className="error msg">{error}</p>}
         {loading && <p className="muted msg">{useImage ? 'Chargement du plan…' : 'Chargement du PDF haute définition…'}</p>}
         <div className={'sizer' + (annotate ? ' annotating' : '')} style={{ width: W, height: H }} onClick={annotate ? placePoint : undefined}>
           {useImage ? (imgUrl && <img src={imgUrl} alt={plan.name} />) : <canvas ref={canvas} />}
           {showAnn && <Markers annots={annots} hidden={hidden} page={page} onSelect={(a) => setSheet({ annot: a })} />}
         </div>
+      </div>
+      {listOpen && (
+        <aside className="side">
+          <div className="top"><strong>Annotations</strong><button onClick={() => setListOpen(false)}>Fermer</button></div>
+          <AnnotationList annots={annots} folders={folders} hidden={hidden} onSelect={focusAnnot} />
+        </aside>
+      )}
       </div>
       {sheet && (
         <AnnotationSheet key={sheet.annot ? sheet.annot.id : 'new'} plan={plan} version={version} draft={sheet.draft} annot={sheet.annot}

@@ -4,6 +4,7 @@ import workerSrc from 'pdfjs-dist/build/pdf.worker.min.js?url'
 import { supabase } from './supabase'
 import { fetchPlan, forgetPlan } from './cache.js'
 import Viewer from './Viewer.jsx'
+import { IconButton, TrashIcon, PencilIcon } from './ui.jsx'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
 
@@ -169,6 +170,14 @@ export default function Plans({ project }) {
   }
   useEffect(() => { load() }, [])
 
+  async function renamePlan(p) {
+    const n = window.prompt('Nouveau nom du plan', p.name)
+    if (!n || !n.trim() || n.trim() === p.name) return
+    const { error } = await supabase.from('plans').update({ name: n.trim() }).eq('id', p.id)
+    if (error) setError('Renommage impossible.')
+    load()
+  }
+
   async function removePlan(p) {
     const n = p.plan_versions.length
     if (!window.confirm(`Supprimer définitivement le plan « ${p.name} » et ses ${n} version${n > 1 ? 's' : ''} ?\nLes annotations associées seront aussi supprimées. Cette action est irréversible.`)) return
@@ -211,7 +220,8 @@ export default function Plans({ project }) {
                 </button>
                 <div className="row">
                   <button onClick={() => setForm({ plan: p })}>Nouvelle version</button>
-                  <button className="danger icon" disabled={deleting === p.id} onClick={() => removePlan(p)} aria-label="Supprimer le plan" title="Supprimer le plan">{deleting === p.id ? '…' : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>}</button>
+                  <IconButton label="Renommer le plan" onClick={() => renamePlan(p)}><PencilIcon /></IconButton>
+                  <IconButton label="Supprimer le plan" danger disabled={deleting === p.id} onClick={() => removePlan(p)}><TrashIcon /></IconButton>
                 </div>
               </li>
             )

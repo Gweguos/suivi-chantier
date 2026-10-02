@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
 import Plans from './Plans.jsx'
+import Members from './Members.jsx'
 
 function Login() {
   const [email, setEmail] = useState('')
@@ -41,6 +42,7 @@ function ProjectPage({ project, onBack }) {
       <h1>{project.name}</h1>
       {project.description && <p className="muted">{project.description}</p>}
       <Plans project={project} />
+      <Members project={project} />
     </main>
   )
 }

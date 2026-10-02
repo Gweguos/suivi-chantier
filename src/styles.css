@@ -88,3 +88,15 @@ button.statut.on { border-color: var(--c); box-shadow: 0 0 0 2px var(--c); }
 .modal { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: rgba(0, 0, 0, .6); }
 .modalbox { display: grid; gap: 12px; padding: 16px; background: var(--card); border: 1.5px solid var(--ink); max-width: 340px; }
 .modalbox canvas { background: #d9dfe3; border: 1.5px solid var(--ink); }
+.body { flex: 1; display: flex; min-height: 0; }
+.body .stage { flex: 1; min-width: 0; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.side { width: 320px; flex: none; overflow: auto; display: grid; gap: 12px; align-content: start; padding: 12px; background: var(--card); border-left: 1.5px solid var(--line); }
+@media (max-width: 899px) { .side { position: fixed; inset: 0; z-index: 15; width: auto; padding-top: calc(12px + env(safe-area-inset-top)); background: var(--paper); } }
+.annlist { display: grid; gap: 16px; }
+.annlist h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 1rem; }
+.annlist h3 i { width: 14px; height: 14px; border-radius: 50%; background: var(--c); }
+button.annrow { display: grid; gap: 2px; width: 100%; min-height: 0; padding: 10px 12px; margin-bottom: 6px; text-align: left; font-weight: 400; border-color: var(--line); }
+.visit { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.days .icon { min-width: 40px; min-height: 40px; }
+.member { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.member span { flex: 1; overflow: hidden; text-overflow: ellipsis; }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import { fetchPlan } from './cache.js'
+import { IconButton, TrashIcon, PencilIcon } from './ui.jsx'
 import { loadBitmap, centerCrop, squareJpeg } from './photo.js'
 
 export const STATUTS = {
@@ -35,17 +36,54 @@ export function Markers({ annots, hidden, page, onSelect }) {
   ))
 }
 
-export function DayFilter({ folders, annots, hidden, setHidden }) {
-  if (folders.length === 0) return <p className="hint">Aucun dossier d’annotations pour ce plan.</p>
+const visitName = (f) => f.name || 'Visite du ' + dayLabel(f.folder_date)
+
+export function DayFilter({ folders, annots, hidden, setHidden, reload }) {
+  if (folders.length === 0) return <p className="hint">Aucune visite enregistrée pour ce plan.</p>
   const toggle = (id) => setHidden((h) => { const n = new Set(h); n.has(id) ? n.delete(id) : n.add(id); return n })
+  async function rename(f) {
+    const n = window.prompt('Nom de la visite', visitName(f))
+    if (n === null) return
+    await supabase.from('annotation_folders').update({ name: n.trim() || null }).eq('id', f.id)
+    reload()
+  }
   return (
     <div className="days">
       {folders.map((f) => (
-        <label key={f.id} className="check">
-          <input type="checkbox" checked={!hidden.has(f.id)} onChange={() => toggle(f.id)} />
-          {dayLabel(f.folder_date)} ({annots.filter((a) => a.folder_id === f.id).length})
-        </label>
+        <div key={f.id} className="visit">
+          <label className="check">
+            <input type="checkbox" checked={!hidden.has(f.id)} onChange={() => toggle(f.id)} />
+            {visitName(f)} ({annots.filter((a) => a.folder_id === f.id).length})
+          </label>
+          <IconButton label="Renommer la visite" onClick={() => rename(f)}><PencilIcon /></IconButton>
+        </div>
       ))}
+    </div>
+  )
+}
+
+export function AnnotationList({ annots, folders, hidden, onSelect }) {
+  const shown = annots.filter((a) => !hidden.has(a.folder_id))
+  const visit = (id) => { const f = folders.find((x) => x.id === id); return f ? visitName(f) : '' }
+  return (
+    <div className="annlist">
+      {Object.entries(STATUTS).map(([k, s]) => {
+        const list = shown.filter((a) => (STATUTS[a.color] ? a.color : 'rouge') === k)
+        return (
+          <section key={k}>
+            <h3 style={{ '--c': s.color }}><i />{s.label} ({list.length})</h3>
+            {list.length === 0 ? <p className="muted">Aucune</p> : list.map((a) => {
+              const n = a.annotation_photos.filter((p) => !p.deleted_at).length
+              return (
+                <button key={a.id} className="annrow" onClick={() => onSelect(a)}>
+                  <strong>{a.note || 'Sans remarque'}</strong>
+                  <small>{visit(a.folder_id)} · page {a.page}{n ? ` · ${n} photo${n > 1 ? 's' : ''}` : ''}</small>
+                </button>
+              )
+            })}
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -143,7 +181,7 @@ function PhotoPicker({ items, setItems }) {
           {items.map((it) => (
             <div key={it.id} className="pending">
               <img src={it.url} alt="" onClick={() => setEdit({ id: it.id, file: it.src })} />
-              <button type="button" aria-label="Retirer la photo" onClick={() => setItems((l) => l.filter((x) => x.id !== it.id))}>×</button>
+              <button type="button" aria-label="Retirer la photo" onClick={() => setItems((l) => l.filter((x) => x.id !== it.id))}><TrashIcon /></button>
             </div>
           ))}
         </div>
@@ -234,7 +272,7 @@ export function AnnotationSheet({ plan, version, draft, annot, onClose, onSaved 
       {error && <p className="error">{error}</p>}
       <div className="row">
         <button className="primary" disabled={busy} onClick={save}>{busy ? 'Enregistrement…' : 'Enregistrer'}</button>
-        {annot && <button className="danger" disabled={busy} onClick={remove}>Supprimer</button>}
+        {annot && <IconButton label="Supprimer l’annotation" danger disabled={busy} onClick={remove}><TrashIcon /></IconButton>}
       </div>
     </div>
   )
