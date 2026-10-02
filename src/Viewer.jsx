@@ -5,7 +5,7 @@ import { supabase } from './supabase'
 import { LEVELS, THUMB, renderJpeg } from './preview.js'
 import { useMeasure } from './Measure.jsx'
 import { CameraIcon } from './ui.jsx'
-import { useAnnotations, Markers, AnnotationSheet, DayFilter, AnnotationList } from './Annotations.jsx'
+import { useAnnotations, Markers, AnnotationSheet, DayFilter, AnnotationList, STATUTS } from './Annotations.jsx'
 
 const HD_MAX_DPR = 1.5  // finesse du rendu HD (plus bas = plus rapide)
 const MAX_ZOOM = 20     // zoom maximal (multiple de la vue « Ajuster »)
@@ -27,6 +27,15 @@ export default function Viewer({ plan, onClose, onChanged }) {
   const [showDays, setShowDays] = useState(false)
   const [hidden, setHidden] = useState(new Set())
   const [sheet, setSheet] = useState(null)
+  const [nav, setNav] = useState(null) // parcours d'une problématique : { ids, i, title }
+  const pendingCenter = useRef(null)
+  const dirtyRef = useRef(false)
+  // Avertit avant d'abandonner une fiche modifiée mais non enregistrée
+  function guard(fn) {
+    if (dirtyRef.current && !window.confirm('Vous avez des modifications non enregistrées.\n\nAnnuler : revenir à la fiche pour l’enregistrer.\nOK : abandonner les modifications.')) return
+    dirtyRef.current = false
+    fn()
+  }
   const [activeFolder, setActiveFolder] = useState(null)
   const [drawing, setDrawing] = useState(false)
   const [building, setBuilding] = useState(false)
@@ -204,15 +213,45 @@ export default function Viewer({ plan, onClose, onChanged }) {
   }
   const onPointerUp = (e) => { ptrs.current.delete(e.pointerId) }
 
-  function focusAnnot(a) {
-    setSheet({ annot: a })
-    if (!window.matchMedia('(min-width: 900px)').matches) setListOpen(false)
+  function centerOn(a) {
     if (!a.geometry) return
-    if (a.page !== page) { setPage(a.page); return }
+    if (a.page !== page) { pendingCenter.current = a; setPage(a.page); return }
     const st = box.current
     st.scrollLeft = a.geometry.x * W - st.clientWidth / 2
     st.scrollTop = a.geometry.y * H - st.clientHeight / 2
   }
+  useEffect(() => {
+    const a = pendingCenter.current
+    if (a && a.page === page && box.current) {
+      pendingCenter.current = null
+      box.current.scrollLeft = a.geometry.x * W - box.current.clientWidth / 2
+      box.current.scrollTop = a.geometry.y * H - box.current.clientHeight / 2
+    }
+  }, [page, W, H])
+
+  function openGroup(statut, name, items) {
+    guard(() => openGroupNow(statut, name, items))
+  }
+  function openGroupNow(statut, name, items) {
+    setNav({ ids: items.map((a) => a.id), i: 0, title: `${STATUTS[statut].label} · ${name}` })
+    setSheet({ annot: items[0] })
+    centerOn(items[0])
+    if (!window.matchMedia('(min-width: 900px)').matches) setListOpen(false)
+  }
+  function goTo(i) {
+    guard(() => goToNow(i))
+  }
+  function goToNow(i) {
+    if (!nav) return
+    const j = (i + nav.ids.length) % nav.ids.length
+    const a = annots.find((x) => x.id === nav.ids[j])
+    if (!a) return
+    setNav({ ...nav, i: j })
+    setSheet({ annot: a })
+    centerOn(a)
+  }
+  const closeSheet = () => { setSheet(null); setNav(null) }
+  const openDraft = (draft) => guard(() => { setNav(null); setSheet({ draft }) })
 
   async function makePreview() {
     setBuilding(true); setError('')
@@ -251,7 +290,7 @@ export default function Viewer({ plan, onClose, onChanged }) {
   function placePoint(e) {
     if (moved.current) return
     const r = e.currentTarget.getBoundingClientRect()
-    setSheet({ draft: { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, page, photo: photoMode } })
+    openDraft({ x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, page, photo: photoMode })
   }
 
   const loading = !error && (useImage ? !imgUrl : !pdf)
@@ -259,7 +298,7 @@ export default function Viewer({ plan, onClose, onChanged }) {
   return (
     <div className="viewer">
       <header>
-        <button onClick={onClose}>Fermer</button>
+        <button onClick={() => guard(onClose)}>Fermer</button>
         <strong>{plan.name}</strong>
         <select value={version.id} onChange={(e) => setVersion(versions.find((v) => v.id === e.target.value))}>
           {versions.map((v) => <option key={v.id} value={v.id}>Indice {v.version_label}{v.is_current ? ' (actuel)' : ''}</option>)}
@@ -289,7 +328,7 @@ export default function Viewer({ plan, onClose, onChanged }) {
       {(annotate || photoMode) && (
         <div className="hint">
           <span>{photoMode ? 'Touchez le plan pour placer une photo.' : 'Touchez le plan pour placer un point.'}</span>
-          {annotate && <button onClick={() => setSheet({ draft: { global: true } })}>Annotation globale</button>}
+          {annotate && <button onClick={() => openDraft({ global: true })}>Annotation globale</button>}
         </div>
       )}
       {measure.panel}
@@ -306,20 +345,21 @@ export default function Viewer({ plan, onClose, onChanged }) {
           {hasDisplay && imgUrl && <img src={imgUrl} alt={plan.name} />}
           {!useImage && <canvas ref={canvas} />}
           {measure.overlay}
-          {showAnn && <Markers annots={annots} hidden={hidden} page={page} onSelect={(a) => setSheet({ annot: a })} />}
+          {showAnn && <Markers annots={annots} hidden={hidden} page={page} onSelect={(a) => guard(() => { setNav(null); setSheet({ annot: a }) })} />}
         </div>
       </div>
       {listOpen && (
         <aside className="side">
           <div className="top"><strong>Annotations</strong><button onClick={() => setListOpen(false)}>Fermer</button></div>
-          <AnnotationList annots={annots} folders={folders} probs={probs} hidden={hidden} onSelect={focusAnnot}
-            onGlobal={() => { setSheet({ draft: { global: true } }); if (!window.matchMedia('(min-width: 900px)').matches) setListOpen(false) }} />
+          <AnnotationList annots={annots} probs={probs} hidden={hidden} onOpen={openGroup}
+            onGlobal={() => { openDraft({ global: true }); if (!window.matchMedia('(min-width: 900px)').matches) setListOpen(false) }} />
         </aside>
       )}
       </div>
       {sheet && (
         <AnnotationSheet key={sheet.annot ? sheet.annot.id : 'new' + JSON.stringify(sheet.draft)} plan={plan} version={version} draft={sheet.draft} annot={sheet.annot} folders={folders} probs={probs} activeFolder={activeFolder} onLayer={setActiveFolder} reload={reload}
-          onClose={() => setSheet(null)} onSaved={() => { setSheet(null); reload() }} />
+          nav={nav && { title: nav.title, index: nav.i, total: nav.ids.length, onPrev: () => goTo(nav.i - 1), onNext: () => goTo(nav.i + 1) }}
+          dirtyRef={dirtyRef} onClose={() => guard(closeSheet)} onSaved={() => { dirtyRef.current = false; closeSheet(); reload() }} />
       )}
     </div>
   )

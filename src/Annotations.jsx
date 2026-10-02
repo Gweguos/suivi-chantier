@@ -97,38 +97,31 @@ export function DayFilter({ plan, folders, annots, hidden, setHidden, reload }) 
   )
 }
 
-export function AnnotationList({ annots, folders, probs, hidden, onSelect, onGlobal }) {
-  const [by, setBy] = useState('statut')
+export function AnnotationList({ annots, probs, hidden, onOpen, onGlobal }) {
   const shown = annots.filter((a) => a.kind !== 'photo' && !hidden.has(a.folder_id))
-  const layer = (id) => { const f = folders.find((x) => x.id === id); return f ? layerName(f) : '' }
-  const cmp = (a, b) => layer(a.folder_id).localeCompare(layer(b.folder_id), 'fr', { numeric: true })
-  const row = (a) => {
-    const n = a.annotation_photos.filter((p) => !p.deleted_at).length
-    return (
-      <button key={a.id} className="annrow" onClick={() => onSelect(a)}>
-        <strong><i className="dot" style={{ background: (STATUTS[a.color] || STATUTS.rouge).color }} />{a.note || 'Sans remarque'}</strong>
-        <small>{layer(a.folder_id)}{a.kind === 'global' ? ' · globale' : ` · page ${a.page}`}{n ? ` · ${n} photo${n > 1 ? 's' : ''}` : ''}</small>
-      </button>
-    )
-  }
-  const groups = by === 'statut'
-    ? Object.entries(STATUTS).map(([k, s]) => ({ key: k, title: s.label, color: s.color, list: shown.filter((a) => (STATUTS[a.color] ? a.color : 'rouge') === k) }))
-    : [...probs.map((p) => ({ key: p.id, title: p.name, list: shown.filter((a) => a.problematique_id === p.id) })),
-       { key: 'none', title: 'Sans problématique', list: shown.filter((a) => !a.problematique_id) }].filter((g) => g.list.length)
+  const probName = (id) => (id ? (probs.find((p) => p.id === id) || {}).name || 'Problématique' : 'Générale')
   return (
     <div className="annlist">
-      <div className="row">
-        <button className={by === 'statut' ? 'primary' : ''} onClick={() => setBy('statut')}>Par statut</button>
-        <button className={by === 'prob' ? 'primary' : ''} onClick={() => setBy('prob')}>Par problématique</button>
-      </div>
       <button onClick={onGlobal}>+ Annotation globale</button>
-      {groups.length === 0 && <p className="muted">Aucune annotation.</p>}
-      {groups.map((g) => (
-        <section key={g.key}>
-          <h3 style={{ '--c': g.color }}>{g.color && <i />}{g.title} ({g.list.length})</h3>
-          {g.list.length === 0 ? <p className="muted">Aucune</p> : [...g.list].sort(cmp).map(row)}
-        </section>
-      ))}
+      {shown.length === 0 && <p className="muted">Aucune annotation.</p>}
+      {Object.entries(STATUTS).map(([k, s]) => {
+        const list = shown.filter((a) => (STATUTS[a.color] ? a.color : 'rouge') === k)
+        const byProb = {}
+        for (const a of list) (byProb[a.problematique_id || ''] ||= []).push(a)
+        const groups = Object.entries(byProb)
+          .map(([key, items]) => ({ key, name: probName(key), items }))
+          .sort((x, y) => (x.key === '' ? -1 : y.key === '' ? 1 : x.name.localeCompare(y.name, 'fr')))
+        return (
+          <section key={k}>
+            <h3 style={{ '--c': s.color }}><i />{s.label} ({list.length})</h3>
+            {groups.length === 0 ? <p className="muted">Aucune</p> : groups.map((g) => (
+              <button key={g.key || 'generale'} className="annrow pr" onClick={() => onOpen(k, g.name, g.items)}>
+                <strong>{g.name}</strong><span className="count">{g.items.length}</span>
+              </button>
+            ))}
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -243,7 +236,7 @@ function PhotoPicker({ items, setItems }) {
   )
 }
 
-export function AnnotationSheet({ plan, version, draft, annot, folders, probs, activeFolder, onLayer, reload, onClose, onSaved }) {
+export function AnnotationSheet({ plan, version, draft, annot, folders, probs, nav, dirtyRef, activeFolder, onLayer, reload, onClose, onSaved }) {
   const [note, setNote] = useState(annot ? annot.note || '' : '')
   const [color, setColor] = useState(annot && STATUTS[annot.color] ? annot.color : 'rouge')
   const [items, setItems] = useState([])
@@ -253,6 +246,16 @@ export function AnnotationSheet({ plan, version, draft, annot, folders, probs, a
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const photos = annot ? annot.annotation_photos.filter((p) => !p.deleted_at) : []
+  const dirty = items.length > 0
+    || (!isPhoto && (note !== (annot ? annot.note || '' : '')
+      || color !== (annot && STATUTS[annot.color] ? annot.color : 'rouge')
+      || probId !== (annot && annot.problematique_id ? annot.problematique_id : '')))
+    || (!!annot && folderId !== annot.folder_id)
+  // signale au parent s'il y a des modifications non enregistrées
+  useEffect(() => {
+    if (dirtyRef) dirtyRef.current = dirty
+    return () => { if (dirtyRef) dirtyRef.current = false }
+  })
 
   async function save() {
     setBusy(true); setError('')
@@ -298,8 +301,33 @@ export function AnnotationSheet({ plan, version, draft, annot, folders, probs, a
 
   return (
     <div className="sheet">
-      <div className="top"><strong>{isPhoto ? 'Photos' : annot ? 'Annotation' : draft && draft.global ? 'Annotation globale' : 'Nouvelle annotation'}</strong><button onClick={onClose}>Fermer</button></div>
-      {!isPhoto && <label>Remarque<textarea rows="3" value={note} onChange={(e) => setNote(e.target.value)} /></label>}
+      <div className="top">
+        {nav ? (
+          <div className="navbar">
+            <button aria-label="Annotation précédente" onClick={nav.onPrev} disabled={nav.total < 2}>‹</button>
+            <strong>{nav.title}</strong>
+            <span>{nav.index + 1} / {nav.total}</span>
+            <button aria-label="Annotation suivante" onClick={nav.onNext} disabled={nav.total < 2}>›</button>
+          </div>
+        ) : (
+          <strong>{isPhoto ? 'Photos' : annot ? 'Annotation' : draft && draft.global ? 'Annotation globale' : 'Nouvelle annotation'}</strong>
+        )}
+        <button onClick={onClose}>Fermer</button>
+      </div>
+      {!isPhoto && (
+        <label>Problématique
+          <select value={probId} onChange={async (e) => {
+            if (e.target.value !== '__new') { setProbId(e.target.value); return }
+            const n = window.prompt('Nom de la nouvelle problématique (propre à ce projet)')
+            if (!n || !n.trim()) return
+            try { const id = await createProb(plan, n.trim()); await reload(); setProbId(id) } catch { setError('Création de la problématique impossible.') }
+          }}>
+            <option value="">Générale</option>
+            {probs.map((p) => <option key={p.id} value={p.id}>{p.name}{p.project_id ? ' (projet)' : ''}</option>)}
+            <option value="__new">+ Nouvelle problématique…</option>
+          </select>
+        </label>
+      )}
       {!isPhoto && (
       <div className="statuts">
         {Object.entries(STATUTS).map(([k, s]) => (
@@ -309,21 +337,8 @@ export function AnnotationSheet({ plan, version, draft, annot, folders, probs, a
         ))}
       </div>
       )}
+      {!isPhoto && <label>Commentaire<textarea rows="2" value={note} onChange={(e) => setNote(e.target.value)} /></label>}
       {photos.length > 0 && <div className="photos">{photos.map((p) => <Photo key={p.id} path={p.file_path} />)}</div>}
-      {!isPhoto && (
-        <label>Problématique
-          <select value={probId} onChange={async (e) => {
-            if (e.target.value !== '__new') { setProbId(e.target.value); return }
-            const n = window.prompt('Nom de la nouvelle problématique (propre à ce projet)')
-            if (!n || !n.trim()) return
-            try { const id = await createProb(plan, n.trim()); await reload(); setProbId(id) } catch { setError('Création de la problématique impossible.') }
-          }}>
-            <option value="">Aucune</option>
-            {probs.map((p) => <option key={p.id} value={p.id}>{p.name}{p.project_id ? ' (projet)' : ''}</option>)}
-            <option value="__new">+ Nouvelle problématique…</option>
-          </select>
-        </label>
-      )}
       <label>Calque
         <select value={folderId} onChange={async (e) => {
           if (e.target.value !== '__new') { setFolderId(e.target.value); return }
