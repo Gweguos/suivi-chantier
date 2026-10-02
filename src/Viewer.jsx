@@ -4,11 +4,15 @@ import { fetchPlan } from './cache.js'
 import { supabase } from './supabase'
 import { LEVELS, THUMB, renderJpeg } from './preview.js'
 import { useMeasure } from './Measure.jsx'
-import { CameraIcon } from './ui.jsx'
+import { CameraIcon, PlusIcon, MinusIcon, FitIcon, PinIcon, RulerIcon, EyeIcon, EyeOffIcon, LayersIcon, ListIcon, ChevronUpIcon, ChevronDownIcon, ImageIcon } from './ui.jsx'
 import { useAnnotations, Markers, AnnotationSheet, DayFilter, AnnotationList, STATUTS } from './Annotations.jsx'
 
 const HD_MAX_DPR = 1.5  // finesse du rendu HD (plus bas = plus rapide)
-const MAX_ZOOM = 20     // zoom maximal (multiple de la vue « Ajuster »)
+const MAX_ZOOM = 30     // zoom maximal : 3000 % (multiple de la vue « Ajuster »)
+
+function FabBtn({ label, on, disabled, onClick, children }) {
+  return <button type="button" className={'fab' + (on ? ' on' : '')} aria-label={label} title={label} aria-pressed={on === undefined ? undefined : !!on} disabled={disabled} onClick={onClick}>{children}</button>
+}
 
 export default function Viewer({ plan, onClose, onChanged }) {
   const versions = [...plan.plan_versions].sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -331,27 +335,6 @@ export default function Viewer({ plan, onClose, onChanged }) {
           {versions.map((v) => <option key={v.id} value={v.id}>Indice {v.version_label}{v.is_current ? ' (actuel)' : ''}</option>)}
         </select>
       </header>
-      <div className="tools">
-        <button onClick={() => view({ z: zoom / 1.6 })} aria-label="Dézoomer">−</button>
-        <button onClick={fitView}>Ajuster</button>
-        <button onClick={() => view({ z: zoom * 1.6 })} aria-label="Zoomer">+</button>
-        <span>{Math.round(zoom * 100)} %</span>
-        {pages > 1 && (
-          <>
-            <button onClick={() => setPage((n) => Math.max(1, n - 1))} disabled={page === 1}>‹</button>
-            <span>{page} / {pages}</span>
-            <button onClick={() => setPage((n) => Math.min(pages, n + 1))} disabled={page === pages}>›</button>
-          </>
-        )}
-        <button className={annotate ? 'primary' : ''} onClick={() => { setAnnotate((a) => !a); setPhotoMode(false); measure.setOn(false) }}>Annoter</button>
-        <button className={photoMode ? 'primary' : ''} aria-label="Placer une photo" title="Placer une photo" onClick={() => { setPhotoMode((p) => !p); setAnnotate(false); measure.setOn(false) }}><CameraIcon width="18" height="18" /></button>
-        <button className={measure.on ? 'primary' : ''} onClick={() => { measure.setOn(!measure.on); setAnnotate(false); setPhotoMode(false) }}>Mesure</button>
-        <button onClick={() => setShowAnn((s) => !s)}>{showAnn ? 'Masquer' : 'Afficher'}</button>
-        <button onClick={() => setShowDays((s) => !s)}>Calques</button>
-        <button onClick={() => setListOpen((o) => !o)}>Liste</button>
-        {hasDisplay && <button onClick={() => setHd((h) => !h)}>{hd ? 'Aperçu' : 'HD'}</button>}
-        {!hasDisplay && pdf && <button onClick={makePreview} disabled={building}>Créer l’aperçu</button>}
-      </div>
       {(annotate || photoMode) && (
         <div className="hint">
           <span>{photoMode ? 'Touchez le plan pour placer une photo.' : 'Touchez le plan pour placer un point.'}</span>
@@ -361,6 +344,37 @@ export default function Viewer({ plan, onClose, onChanged }) {
       {measure.panel}
       {showDays && <DayFilter plan={plan} folders={folders} annots={annots} hidden={hidden} setHidden={setHidden} reload={reload} />}
       <div className="body">
+        <div className="floattools">
+          <div className="grp">
+            <FabBtn label="Zoomer" onClick={() => view({ z: zoom * 1.6 })}><PlusIcon /></FabBtn>
+            <button className="zoomval" title="Ajuster le plan à l’écran" onClick={fitView}>{Math.round(zoom * 100)}%</button>
+            <FabBtn label="Dézoomer" onClick={() => view({ z: zoom / 1.6 })}><MinusIcon /></FabBtn>
+            <FabBtn label="Ajuster le plan à l’écran" onClick={fitView}><FitIcon /></FabBtn>
+          </div>
+          {pages > 1 && (
+            <div className="grp">
+              <FabBtn label="Page précédente" disabled={page === 1} onClick={() => setPage((n) => Math.max(1, n - 1))}><ChevronUpIcon /></FabBtn>
+              <span className="pageval">{page}/{pages}</span>
+              <FabBtn label="Page suivante" disabled={page === pages} onClick={() => setPage((n) => Math.min(pages, n + 1))}><ChevronDownIcon /></FabBtn>
+            </div>
+          )}
+          <div className="grp">
+            <FabBtn label="Annoter : placer un point" on={annotate} onClick={() => { setAnnotate((a) => !a); setPhotoMode(false); measure.setOn(false) }}><PinIcon /></FabBtn>
+            <FabBtn label="Placer une photo" on={photoMode} onClick={() => { setPhotoMode((p) => !p); setAnnotate(false); measure.setOn(false) }}><CameraIcon /></FabBtn>
+            <FabBtn label="Mesurer" on={measure.on} onClick={() => { measure.setOn(!measure.on); setAnnotate(false); setPhotoMode(false) }}><RulerIcon /></FabBtn>
+          </div>
+          <div className="grp">
+            <FabBtn label={showAnn ? 'Masquer les annotations' : 'Afficher les annotations'} onClick={() => setShowAnn((x) => !x)}>{showAnn ? <EyeIcon /> : <EyeOffIcon />}</FabBtn>
+            <FabBtn label="Calques" on={showDays} onClick={() => setShowDays((x) => !x)}><LayersIcon /></FabBtn>
+            <FabBtn label="Liste des annotations" on={listOpen} onClick={() => setListOpen((o) => !o)}><ListIcon /></FabBtn>
+          </div>
+          {(hasDisplay || pdf) && (
+            <div className="grp">
+              {hasDisplay && <FabBtn label={hd ? 'Haute définition active : revenir à l’aperçu' : 'Activer la haute définition'} on={hd} onClick={() => setHd((h) => !h)}><span className="hdtxt">HD</span></FabBtn>}
+              {!hasDisplay && pdf && <FabBtn label="Créer l’aperçu rapide" disabled={building} onClick={makePreview}><ImageIcon /></FabBtn>}
+            </div>
+          )}
+        </div>
       <div className="stage" ref={box} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onLostPointerCapture={onPointerUp} onMouseDown={(e) => e.button === 1 && e.preventDefault()}>
         <div className="msgwrap">
         {error && <p className="error msg">{error}</p>}

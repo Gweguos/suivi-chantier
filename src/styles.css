@@ -95,11 +95,20 @@ button.danger { color: var(--error); border-color: rgba(255, 138, 128, .4); }
 
 /* ---------- Visionneuse ---------- */
 .viewer { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--bg); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-.viewer header, .tools, .measurebar, .days { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--bar); border-bottom: 1px solid var(--line); }
+.viewer header, .measurebar, .days { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--bar); border-bottom: 1px solid var(--line); }
 .viewer header strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.tools, .measurebar, .days { flex-wrap: wrap; }
-.tools button { min-width: 36px; }
-.tools span { color: var(--muted); padding: 0 2px; }
+.measurebar, .days { flex-wrap: wrap; }
+.floattools { position: absolute; left: 8px; top: 8px; z-index: 12; display: flex; flex-direction: column; gap: 6px; max-height: calc(100% - 16px); overflow-y: auto; scrollbar-width: none; pointer-events: none; }
+.floattools::-webkit-scrollbar { display: none; }
+.floattools .grp { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 3px; width: max-content; border-radius: 12px; background: rgba(23, 27, 31, .55); border: 1px solid rgba(255, 255, 255, .14); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); pointer-events: auto; }
+button.fab { display: grid; place-items: center; width: 38px; height: 38px; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--ink); }
+button.fab:hover:not(:disabled) { background: rgba(255, 255, 255, .14); }
+button.fab.on { background: var(--sky); color: var(--sky-ink); }
+button.fab:disabled { opacity: .35; }
+button.fab svg { width: 21px; height: 21px; }
+.hdtxt { font-size: 13px; font-weight: 800; letter-spacing: .02em; }
+button.fab:not(.on) .hdtxt { opacity: .55; }
+button.zoomval, .pageval { min-width: 38px; min-height: 0; height: 20px; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: 11px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; line-height: 20px; }
 .hint { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 5px 10px; background: var(--sky-soft); color: #cfe8fa; border-bottom: 1px solid var(--line); font-weight: 550; }
 .hint button { min-height: 30px; }
 .measurebar input { width: 110px; }
@@ -175,7 +184,7 @@ i.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; ma
   body { font-size: 13px; }
   button, .btn { min-height: 34px; padding: 0 9px; font-size: 13px; }
   input:not([type="checkbox"]):not([type="range"]):not([type="file"]), select { min-height: 34px; }
-  .tools, .viewer header { padding: 3px 6px; gap: 4px; }
-  .tools button { min-width: 32px; }
+  .viewer header { padding: 3px 6px; gap: 4px; }
+  button.fab { width: 36px; height: 36px; }
   .icon { min-width: 34px; }
 }
