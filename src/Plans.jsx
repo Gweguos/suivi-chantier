@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
 
 const MAX_MB = 50 // limite actuelle du plan gratuit Supabase
 
-async function importPdf({ project, plan, file, name, label, quality, onProgress }) {
+async function importPdf({ project, plan, file, name, label, quality, position, onProgress }) {
   const lv = LEVELS[quality] || LEVELS.standard
   if (file.size > MAX_MB * 1048576) {
     throw new Error(`Fichier trop lourd (${(file.size / 1048576).toFixed(1)} Mo, limite actuelle ${MAX_MB} Mo). Ré-exportez un PDF plus léger.`)
@@ -45,7 +45,7 @@ async function importPdf({ project, plan, file, name, label, quality, onProgress
     const path = `${base}.pdf`
     await put(path, file, 'application/pdf')
     if (!plan) {
-      const r = await supabase.from('plans').insert({ id: planId, project_id: project.id, name })
+      const r = await supabase.from('plans').insert({ id: planId, project_id: project.id, name, ...(position != null ? { position } : {}) })
       if (r.error) throw r.error
     }
     const previous = plan?.plan_versions.find((v) => v.is_current)
@@ -76,7 +76,7 @@ function Thumb({ path }) {
   return url ? <img className="thumb" src={url} alt="" /> : <div className="thumb" />
 }
 
-function ImportForm({ project, plan, onDone, onCancel }) {
+function ImportForm({ project, plan, nextPosition, onDone, onCancel }) {
   const [files, setFiles] = useState([])
   const [name, setName] = useState('')
   const [label, setLabel] = useState(plan ? '' : 'A')
@@ -90,6 +90,9 @@ function ImportForm({ project, plan, onDone, onCancel }) {
     supabase.from('projects').update({ display_quality: v }).eq('id', project.id).then(() => {}, () => {})
   }
 
+  const move = (i, d) => setFiles((l) => { const n = [...l]; [n[i], n[i + d]] = [n[i + d], n[i]]; return n })
+  const sortAz = () => setFiles((l) => [...l].sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true })))
+
   async function submit(e) {
     e.preventDefault()
     setBusy('Lecture du PDF…'); setError('')
@@ -98,7 +101,7 @@ function ImportForm({ project, plan, onDone, onCancel }) {
       const f = files[i]
       const tag = files.length > 1 ? `Plan ${i + 1}/${files.length} · ` : ''
       try {
-        await importPdf({ project, plan, file: f, name: files.length > 1 ? f.name.replace(/\.pdf$/i, '') : name.trim(), label: label.trim(), quality, onProgress: (m) => setBusy(tag + m) })
+        await importPdf({ project, plan, file: f, name: files.length > 1 ? f.name.replace(/\.pdf$/i, '') : name.trim(), label: label.trim(), quality, position: plan ? undefined : nextPosition + i + 1, onProgress: (m) => setBusy(tag + m) })
       } catch (err) {
         failed.push(`${f.name} : ${err.message || 'échec'}`)
       }
@@ -119,7 +122,24 @@ function ImportForm({ project, plan, onDone, onCancel }) {
         }} />
       </label>
       {!plan && files.length <= 1 && <label>Nom du plan<input value={name} onChange={(e) => setName(e.target.value)} required /></label>}
-      {files.length > 1 && <p className="muted">{files.length} plans seront importés, nommés d’après leurs fichiers.</p>}
+      {files.length > 1 && (
+        <div className="order">
+          <div className="row">
+            <span className="muted">Ordre des plans (le premier en haut)</span>
+            <button type="button" onClick={sortAz}>Trier A → Z</button>
+          </div>
+          <ol>
+            {files.map((f, i) => (
+              <li key={f.name + i}>
+                <span className="n">{i + 1}</span>
+                <span className="name">{f.name.replace(/\.pdf$/i, '')}</span>
+                <button type="button" aria-label="Monter" disabled={i === 0} onClick={() => move(i, -1)}>▲</button>
+                <button type="button" aria-label="Descendre" disabled={i === files.length - 1} onClick={() => move(i, 1)}>▼</button>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       <label>Indice de la version<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="A, B, C…" required /></label>
       <label>Qualité de l’aperçu
         <select value={quality} onChange={(e) => chooseQuality(e.target.value)}>
@@ -144,7 +164,7 @@ export default function Plans({ project }) {
   const [deleting, setDeleting] = useState(null)
 
   async function load() {
-    const { data, error } = await supabase.from('plans').select('*, plan_versions(*)').eq('project_id', project.id).order('name')
+    const { data, error } = await supabase.from('plans').select('*, plan_versions(*)').eq('project_id', project.id).order('position', { ascending: true, nullsFirst: true }).order('name')
     if (error) setError('Impossible de charger les plans.')
     else setPlans(data)
   }
@@ -178,7 +198,7 @@ export default function Plans({ project }) {
     <section className="plans">
       <h2>Plans</h2>
       {form ? (
-        <ImportForm project={project} plan={form.plan} onCancel={() => setForm(null)} onDone={(ok) => { if (ok) setForm(null); load() }} />
+        <ImportForm project={project} plan={form.plan} nextPosition={Math.max(0, ...(plans || []).map((p) => p.position || 0))} onCancel={() => setForm(null)} onDone={(ok) => { if (ok) setForm(null); load() }} />
       ) : (
         <button className="primary" onClick={() => setForm({})}>Importer un plan</button>
       )}

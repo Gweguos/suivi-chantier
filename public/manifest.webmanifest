@@ -3,7 +3,7 @@
   "short_name": "Chantier",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#eef1f3",
-  "theme_color": "#1f2d36",
+  "background_color": "#171b1f",
+  "theme_color": "#171b1f",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
 }

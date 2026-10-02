@@ -31,14 +31,14 @@ export function useAnnotations(plan, version) {
   return { annots, folders, probs, reload }
 }
 
-export function Markers({ annots, hidden, page, onSelect }) {
+export function Markers({ annots, hidden, page, activeId, onSelect }) {
   return annots.filter((a) => a.geometry && a.page === page && !hidden.has(a.folder_id)).map((a) => {
     const pos = { left: a.geometry.x * 100 + '%', top: a.geometry.y * 100 + '%' }
     const click = (e) => { e.stopPropagation(); onSelect(a) }
     return a.kind === 'photo' ? (
-      <button key={a.id} className="marker photo" aria-label="Photos" style={pos} onClick={click}><CameraIcon width="16" height="16" /></button>
+      <button key={a.id} className={'marker photo' + (a.id === activeId ? ' active' : '')} aria-label="Photos" style={pos} onClick={click}><CameraIcon width="16" height="16" /></button>
     ) : (
-      <button key={a.id} className="marker" aria-label="Annotation" style={{ ...pos, background: (STATUTS[a.color] || STATUTS.rouge).color }} onClick={click} />
+      <button key={a.id} className={'marker' + (a.id === activeId ? ' active' : '')} aria-label="Annotation" style={{ ...pos, background: (STATUTS[a.color] || STATUTS.rouge).color }} onClick={click} />
     )
   })
 }
@@ -236,7 +236,7 @@ function PhotoPicker({ items, setItems }) {
   )
 }
 
-export function AnnotationSheet({ plan, version, draft, annot, folders, probs, nav, dirtyRef, activeFolder, onLayer, reload, onClose, onSaved }) {
+export function AnnotationSheet({ plan, version, draft, annot, folders, probs, nav, rootRef, dirtyRef, activeFolder, onLayer, reload, onClose, onSaved }) {
   const [note, setNote] = useState(annot ? annot.note || '' : '')
   const [color, setColor] = useState(annot && STATUTS[annot.color] ? annot.color : 'rouge')
   const [items, setItems] = useState([])
@@ -300,7 +300,7 @@ export function AnnotationSheet({ plan, version, draft, annot, folders, probs, n
   }
 
   return (
-    <div className="sheet">
+    <div className="sheet" ref={rootRef}>
       <div className="top">
         {nav ? (
           <div className="navbar">

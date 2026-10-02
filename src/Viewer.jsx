@@ -28,7 +28,10 @@ export default function Viewer({ plan, onClose, onChanged }) {
   const [hidden, setHidden] = useState(new Set())
   const [sheet, setSheet] = useState(null)
   const [nav, setNav] = useState(null) // parcours d'une problématique : { ids, i, title }
-  const pendingCenter = useRef(null)
+  const focusRef = useRef(null) // annotation à garder visible, hors de la zone couverte par la fiche
+  const [tick, setTick] = useState(0)
+  const sheetEl = useRef(null)
+  const [pad, setPad] = useState({ r: 0, b: 0 })
   const dirtyRef = useRef(false)
   // Avertit avant d'abandonner une fiche modifiée mais non enregistrée
   function guard(fn) {
@@ -141,6 +144,7 @@ export default function Viewer({ plan, onClose, onChanged }) {
 
   // Zoom (ancré sur un point de la vue) et/ou déplacement
   function view({ z, ax, ay, dx = 0, dy = 0 }) {
+    focusRef.current = null // l'utilisateur déplace la vue : on arrête de recentrer
     const st = box.current
     const nz = Math.min(MAX_ZOOM, Math.max(0.5, z === undefined ? zoomRef.current : z))
     const r = nz / zoomRef.current
@@ -154,6 +158,7 @@ export default function Viewer({ plan, onClose, onChanged }) {
     else { pending.current = { x, y }; setZoom(nz) }
   }
   function fitView() {
+    focusRef.current = null
     const st = box.current
     pending.current = { x: 0, y: 0 }
     zoomRef.current = 1
@@ -213,21 +218,43 @@ export default function Viewer({ plan, onClose, onChanged }) {
   }
   const onPointerUp = (e) => { ptrs.current.delete(e.pointerId) }
 
-  function centerOn(a) {
-    if (!a.geometry) return
-    if (a.page !== page) { pendingCenter.current = a; setPage(a.page); return }
-    const st = box.current
-    st.scrollLeft = a.geometry.x * W - st.clientWidth / 2
-    st.scrollTop = a.geometry.y * H - st.clientHeight / 2
-  }
-  useEffect(() => {
-    const a = pendingCenter.current
-    if (a && a.page === page && box.current) {
-      pendingCenter.current = null
-      box.current.scrollLeft = a.geometry.x * W - box.current.clientWidth / 2
-      box.current.scrollTop = a.geometry.y * H - box.current.clientHeight / 2
+  // La fiche recouvre une partie du plan : on laisse de la marge pour pouvoir faire défiler le plan hors de sa zone
+  useLayoutEffect(() => {
+    const el = sheetEl.current, st = box.current
+    if (!sheet || !el || !st) { setPad((p) => (p.r || p.b ? { r: 0, b: 0 } : p)); return }
+    const measureSheet = () => {
+      const s = st.getBoundingClientRect(), h = el.getBoundingClientRect()
+      const bottom = h.width > s.width * 0.8 // fiche en bas (téléphone) ou à droite (ordinateur)
+      const r = bottom ? 0 : Math.max(0, Math.round(s.right - h.left))
+      const b = bottom ? Math.max(0, Math.round(s.bottom - h.top)) : 0
+      setPad((p) => (p.r === r && p.b === b ? p : { r, b }))
     }
-  }, [page, W, H])
+    measureSheet()
+    const ro = new ResizeObserver(measureSheet)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [sheet, listOpen, stage.w])
+
+  // Centre l'annotation dans la partie visible du plan (celle qui n'est pas sous la fiche)
+  function centerOn(a) {
+    if (!a.geometry) { focusRef.current = null; return }
+    focusRef.current = a
+    if (a.page !== page) setPage(a.page)
+    setTick((n) => n + 1)
+  }
+  useLayoutEffect(() => {
+    const a = focusRef.current, st = box.current
+    if (!a || !st || a.page !== page) return
+    const s = st.getBoundingClientRect()
+    const h = sheetEl.current && sheetEl.current.getBoundingClientRect()
+    let fw = s.width, fh = s.height
+    if (h && h.width > 0) {
+      if (h.width > s.width * 0.8) fh = Math.max(80, Math.min(s.height, h.top - s.top))
+      else fw = Math.max(80, Math.min(s.width, h.left - s.left))
+    }
+    st.scrollLeft = a.geometry.x * W - fw / 2
+    st.scrollTop = a.geometry.y * H - fh / 2
+  }, [tick, pad.r, pad.b, page, W, H, stage.w])
 
   function openGroup(statut, name, items) {
     guard(() => openGroupNow(statut, name, items))
@@ -341,11 +368,13 @@ export default function Viewer({ plan, onClose, onChanged }) {
         {!useImage && drawing && !loading && !error && <p className="muted msg">Rendu en cours…</p>}
         {building && <p className="muted msg">Création de l’aperçu…</p>}
         </div>
+        <div className="padbox" style={{ width: W + pad.r, height: H + pad.b }}>
         <div className={'sizer' + (annotate || photoMode || measure.on ? ' annotating' : '')} style={{ width: W, height: H }} onClick={annotate || photoMode ? placePoint : measure.on ? placeMeasure : undefined}>
           {hasDisplay && imgUrl && <img src={imgUrl} alt={plan.name} />}
           {!useImage && <canvas ref={canvas} />}
           {measure.overlay}
-          {showAnn && <Markers annots={annots} hidden={hidden} page={page} onSelect={(a) => guard(() => { setNav(null); setSheet({ annot: a }) })} />}
+          {showAnn && <Markers annots={annots} hidden={hidden} page={page} activeId={sheet && sheet.annot ? sheet.annot.id : null} onSelect={(a) => guard(() => { setNav(null); setSheet({ annot: a }); centerOn(a) })} />}
+        </div>
         </div>
       </div>
       {listOpen && (
@@ -355,12 +384,12 @@ export default function Viewer({ plan, onClose, onChanged }) {
             onGlobal={() => { openDraft({ global: true }); if (!window.matchMedia('(min-width: 900px)').matches) setListOpen(false) }} />
         </aside>
       )}
-      </div>
       {sheet && (
         <AnnotationSheet key={sheet.annot ? sheet.annot.id : 'new' + JSON.stringify(sheet.draft)} plan={plan} version={version} draft={sheet.draft} annot={sheet.annot} folders={folders} probs={probs} activeFolder={activeFolder} onLayer={setActiveFolder} reload={reload}
           nav={nav && { title: nav.title, index: nav.i, total: nav.ids.length, onPrev: () => goTo(nav.i - 1), onNext: () => goTo(nav.i + 1) }}
-          dirtyRef={dirtyRef} onClose={() => guard(closeSheet)} onSaved={() => { dirtyRef.current = false; closeSheet(); reload() }} />
+          rootRef={sheetEl} dirtyRef={dirtyRef} onClose={() => guard(closeSheet)} onSaved={() => { dirtyRef.current = false; closeSheet(); reload() }} />
       )}
+      </div>
     </div>
   )
 }
