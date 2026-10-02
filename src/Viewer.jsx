@@ -157,13 +157,22 @@ export default function Viewer({ plan, onClose, onChanged }) {
       const rect = st.getBoundingClientRect()
       view({ z: zoomRef.current * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), ax: e.clientX - rect.left, ay: e.clientY - rect.top })
     }
+    const stop = (e) => e.preventDefault() // Safari : empêche le zoom natif de la page
+    const onTouch = (e) => { if (e.touches.length > 1) e.preventDefault() }
     st.addEventListener('wheel', onWheel, { passive: false })
-    return () => st.removeEventListener('wheel', onWheel)
+    st.addEventListener('gesturestart', stop)
+    st.addEventListener('touchmove', onTouch, { passive: false })
+    return () => {
+      st.removeEventListener('wheel', onWheel)
+      st.removeEventListener('gesturestart', stop)
+      st.removeEventListener('touchmove', onTouch)
+    }
   }, [])
 
   // Glisser = déplacer (souris, clic molette, un doigt) ; deux doigts = zoom + déplacement
   function onPointerDown(e) {
     moved.current = false
+    if (e.isPrimary) ptrs.current.clear() // un nouvel appui principal : les anciens doigts sont oubliés
     if (e.target.closest('.marker')) return
     if (e.pointerType === 'mouse' && e.button !== 1) return // souris : seul le clic molette déplace
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -277,7 +286,7 @@ export default function Viewer({ plan, onClose, onChanged }) {
       {measure.panel}
       {showDays && <DayFilter plan={plan} folders={folders} annots={annots} hidden={hidden} setHidden={setHidden} reload={reload} />}
       <div className="body">
-      <div className="stage" ref={box} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onMouseDown={(e) => e.button === 1 && e.preventDefault()}>
+      <div className="stage" ref={box} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onLostPointerCapture={onPointerUp} onMouseDown={(e) => e.button === 1 && e.preventDefault()}>
         <div className="msgwrap">
         {error && <p className="error msg">{error}</p>}
         {loading && <p className="muted msg">{useImage ? 'Chargement du plan…' : 'Chargement du PDF haute définition…'}</p>}

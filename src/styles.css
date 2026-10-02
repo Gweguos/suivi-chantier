@@ -112,3 +112,36 @@ button.annrow { display: grid; gap: 2px; width: 100%; min-height: 0; padding: 10
 .measuresvg line { stroke: #d100d1; stroke-width: 2.5; }
 i.mpt { position: absolute; z-index: 3; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #d100d1; border: 2px solid #fff; pointer-events: none; }
 .mlabel { position: absolute; z-index: 3; transform: translate(-50%, -130%); padding: 2px 8px; border-radius: 4px; background: #d100d1; color: #fff; font-weight: 700; white-space: nowrap; pointer-events: none; }
+
+/* ---------- Interface compacte ---------- */
+body { font-size: 14px; }
+main { padding: 12px; gap: 10px; }
+h1 { font-size: 1.3rem; }
+.plans h2 { font-size: 1.05rem; margin-top: 4px; }
+input:not([type="checkbox"]), select, .viewer select { min-height: 38px; padding: 0 10px; }
+button, .btn { min-height: 38px; padding: 0 12px; font-size: 14px; }
+button.link { min-height: 34px; }
+.icon { min-width: 38px; }
+.days .icon { min-width: 34px; min-height: 34px; }
+.tools button { min-width: 36px; }
+.tools, .viewer header { padding: 4px 8px; gap: 6px; }
+.hint { padding: 5px 10px; }
+.measurebar, .days { padding: 4px 8px; gap: 6px; }
+.check { min-height: 32px; }
+.check input { width: 18px; height: 18px; }
+.item { padding: 9px 12px; }
+.item.withthumb { grid-template-columns: 56px 1fr; }
+.thumb { width: 56px; height: 42px; }
+button.marker { width: 22px; height: 22px; border-width: 2px; }
+.sheet { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); gap: 8px; max-height: 70vh; }
+.side { width: 280px; padding: 8px; }
+.pending button { width: 28px; height: 28px; }
+@media (max-width: 600px) {
+  body { font-size: 13px; }
+  button, .btn { min-height: 34px; padding: 0 9px; font-size: 13px; }
+  input:not([type="checkbox"]), select, .viewer select { min-height: 34px; }
+  .tools, .viewer header { padding: 3px 6px; gap: 4px; }
+  .tools button { min-width: 32px; }
+  .icon { min-width: 34px; }
+  .photos { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
+}
