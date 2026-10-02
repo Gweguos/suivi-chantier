@@ -21,6 +21,8 @@ export default function Viewer({ plan, onClose }) {
   const [showDays, setShowDays] = useState(false)
   const [hidden, setHidden] = useState(new Set())
   const [sheet, setSheet] = useState(null)
+  const [activeFolder, setActiveFolder] = useState(null)
+  const [drawing, setDrawing] = useState(false)
   const [listOpen, setListOpen] = useState(() => window.matchMedia('(min-width: 900px)').matches)
   const ptrs = useRef(new Map())
   const moved = useRef(false)
@@ -40,7 +42,7 @@ export default function Viewer({ plan, onClose }) {
 
   useEffect(() => {
     const el = box.current
-    const ro = new ResizeObserver(() => setStage({ w: el.clientWidth, h: el.clientHeight }))
+    const ro = new ResizeObserver(() => setStage((s) => (!s.w || Math.abs(s.w - el.clientWidth) > 24 || Math.abs(s.h - el.clientHeight) > 24 ? { w: el.clientWidth, h: el.clientHeight } : s)))
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
@@ -54,7 +56,7 @@ export default function Viewer({ plan, onClose }) {
     setImgUrl(null)
     fetchPlan(version.display_paths[page - 1])
       .then((b) => { if (!off) { url = URL.createObjectURL(b); setImgUrl(url) } })
-      .catch(() => { if (!off) setError('Impossible de charger le plan.') })
+      .catch((e) => { if (!off) setError('Impossible de charger le plan : ' + (e && e.message ? e.message : e)) })
     return () => { off = true; if (url) URL.revokeObjectURL(url) }
   }, [version, page, useImage])
 
@@ -68,7 +70,7 @@ export default function Viewer({ plan, onClose }) {
         const d = await pdfjsLib.getDocument({ data: await b.arrayBuffer() }).promise
         if (!off) setPdf(d)
       })
-      .catch(() => { if (!off) setError('Impossible de charger le plan.') })
+      .catch((e) => { if (!off) setError('Impossible de charger le plan : ' + (e && e.message ? e.message : e)) })
     return () => { off = true }
   }, [version, useImage])
 
@@ -81,6 +83,7 @@ export default function Viewer({ plan, onClose }) {
       if (task) task.cancel()
       const c = canvas.current
       if (!c) return
+      setDrawing(true)
       const p = await pdf.getPage(page)
       if (off) return
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -90,11 +93,15 @@ export default function Viewer({ plan, onClose }) {
       buf.width = nw; buf.height = nh
       const vp = p.getViewport({ scale: css * dpr, offsetX: -st.scrollLeft * dpr, offsetY: -st.scrollTop * dpr })
       task = p.render({ canvasContext: buf.getContext('2d'), viewport: vp })
-      try { await task.promise } catch { return }
+      try { await task.promise } catch (e) {
+        if (e && e.name !== 'RenderingCancelledException') { setDrawing(false); setError('Rendu impossible : ' + (e.message || e)) }
+        return
+      }
       if (off) return
       c.width = nw; c.height = nh
       c.style.width = nw / dpr + 'px'; c.style.height = nh / dpr + 'px'
       c.getContext('2d').drawImage(buf, 0, 0)
+      setDrawing(false)
     }
     const onScroll = () => { clearTimeout(raf); raf = setTimeout(draw, 90) }
     st.addEventListener('scroll', onScroll)
@@ -146,6 +153,7 @@ export default function Viewer({ plan, onClose }) {
   // Glisser = déplacer (souris, clic molette, un doigt) ; deux doigts = zoom + déplacement
   function onPointerDown(e) {
     if (e.target.closest('.marker')) return
+    if (e.pointerType === 'mouse' && e.button !== 1) return // souris : seul le clic molette déplace
     e.currentTarget.setPointerCapture(e.pointerId)
     ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     moved.current = false
@@ -213,16 +221,17 @@ export default function Viewer({ plan, onClose }) {
         )}
         <button className={annotate ? 'primary' : ''} onClick={() => setAnnotate((a) => !a)}>Annoter</button>
         <button onClick={() => setShowAnn((s) => !s)}>{showAnn ? 'Masquer' : 'Afficher'}</button>
-        <button onClick={() => setShowDays((s) => !s)}>Visite</button>
+        <button onClick={() => setShowDays((s) => !s)}>Calques</button>
         <button onClick={() => setListOpen((o) => !o)}>Liste</button>
         {hasDisplay && <button onClick={() => setHd((h) => !h)}>{hd ? 'Aperçu' : 'HD'}</button>}
       </div>
       {annotate && <p className="hint">Touchez le plan pour placer un point.</p>}
-      {showDays && <DayFilter folders={folders} annots={annots} hidden={hidden} setHidden={setHidden} reload={reload} />}
+      {showDays && <DayFilter plan={plan} folders={folders} annots={annots} hidden={hidden} setHidden={setHidden} reload={reload} />}
       <div className="body">
       <div className="stage" ref={box} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onMouseDown={(e) => e.button === 1 && e.preventDefault()}>
         {error && <p className="error msg">{error}</p>}
         {loading && <p className="muted msg">{useImage ? 'Chargement du plan…' : 'Chargement du PDF haute définition…'}</p>}
+        {!useImage && drawing && !loading && !error && <p className="muted msg">Rendu en cours…</p>}
         <div className={'sizer' + (annotate ? ' annotating' : '')} style={{ width: W, height: H }} onClick={annotate ? placePoint : undefined}>
           {useImage ? (imgUrl && <img src={imgUrl} alt={plan.name} />) : <canvas ref={canvas} />}
           {showAnn && <Markers annots={annots} hidden={hidden} page={page} onSelect={(a) => setSheet({ annot: a })} />}
@@ -236,7 +245,7 @@ export default function Viewer({ plan, onClose }) {
       )}
       </div>
       {sheet && (
-        <AnnotationSheet key={sheet.annot ? sheet.annot.id : 'new'} plan={plan} version={version} draft={sheet.draft} annot={sheet.annot}
+        <AnnotationSheet key={sheet.annot ? sheet.annot.id : 'new'} plan={plan} version={version} draft={sheet.draft} annot={sheet.annot} folders={folders} activeFolder={activeFolder} onLayer={setActiveFolder} reload={reload}
           onClose={() => setSheet(null)} onSaved={() => { setSheet(null); reload() }} />
       )}
     </div>

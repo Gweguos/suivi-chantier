@@ -4,26 +4,27 @@ import { IconButton, TrashIcon } from './ui.jsx'
 
 export default function Members({ project }) {
   const [rows, setRows] = useState(null)
-  const [email, setEmail] = useState('')
+  const [accounts, setAccounts] = useState([])
+  const [userId, setUserId] = useState('')
   const [role, setRole] = useState('member')
   const [error, setError] = useState('')
 
   async function load() {
     const m = await supabase.from('project_members').select('*').eq('project_id', project.id)
     if (m.error) { setError('Impossible de charger les membres.'); return }
-    const p = await supabase.from('profiles').select('id,email,full_name').in('id', m.data.map((x) => x.user_id))
-    const byId = Object.fromEntries((p.data || []).map((x) => [x.id, x]))
+    const p = await supabase.from('profiles').select('id,email,full_name').order('email')
+    const all = p.data || []
+    const byId = Object.fromEntries(all.map((x) => [x.id, x]))
+    setAccounts(all)
     setRows(m.data.map((x) => ({ ...x, profile: byId[x.user_id] })))
   }
   useEffect(() => { load() }, [])
 
   async function add(e) {
     e.preventDefault(); setError('')
-    const p = await supabase.from('profiles').select('id').eq('email', email.trim().toLowerCase()).maybeSingle()
-    if (!p.data) { setError('Aucun compte avec cet e-mail. Créez-le d’abord dans Supabase (Authentication > Users).'); return }
-    const r = await supabase.from('project_members').insert({ project_id: project.id, user_id: p.data.id, role })
+    const r = await supabase.from('project_members').insert({ project_id: project.id, user_id: userId, role })
     if (r.error) setError(r.error.code === '23505' ? 'Cette personne est déjà membre.' : 'Ajout impossible : réservé aux administrateurs du projet.')
-    else { setEmail(''); load() }
+    else { setUserId(''); load() }
   }
 
   async function changeRole(row, v) {
@@ -40,6 +41,9 @@ export default function Members({ project }) {
     load()
   }
 
+  const memberIds = new Set((rows || []).map((r) => r.user_id))
+  const available = accounts.filter((a) => !memberIds.has(a.id))
+
   return (
     <section className="plans">
       <h2>Membres</h2>
@@ -54,15 +58,24 @@ export default function Members({ project }) {
         </div>
       ))}
       <form className="panel" onSubmit={add}>
-        <label>Ajouter un membre (e-mail de son compte)
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <select value={role} onChange={(e) => setRole(e.target.value)}>
-          <option value="member">Membre</option>
-          <option value="admin">Administrateur</option>
-        </select>
+        {available.length === 0 ? (
+          <p className="muted">Tous les comptes existants sont déjà membres. Pour en ajouter d’autres, créez-les dans Supabase (Authentication &gt; Users).</p>
+        ) : (
+          <>
+            <label>Ajouter un membre
+              <select value={userId} onChange={(e) => setUserId(e.target.value)} required>
+                <option value="">Choisir un compte…</option>
+                {available.map((a) => <option key={a.id} value={a.id}>{a.email}</option>)}
+              </select>
+            </label>
+            <select value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="member">Membre</option>
+              <option value="admin">Administrateur</option>
+            </select>
+          </>
+        )}
         {error && <p className="error">{error}</p>}
-        <button className="primary">Ajouter</button>
+        {available.length > 0 && <button className="primary" disabled={!userId}>Ajouter</button>}
       </form>
     </section>
   )
