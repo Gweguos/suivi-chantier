@@ -102,3 +102,13 @@ button.annrow { display: grid; gap: 2px; width: 100%; min-height: 0; padding: 10
 .member span { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .body .stage { cursor: auto; }
 .days { align-items: center; }
+.msgwrap { position: sticky; top: 0; left: 0; height: 0; z-index: 5; }
+.msg { background: var(--card); padding: 6px 10px; border: 1.5px solid var(--ink); }
+.sizer img { position: absolute; left: 0; top: 0; }
+.measurebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; background: var(--card); border-bottom: 1.5px solid var(--line); }
+.measurebar form { align-items: center; }
+.measurebar input { width: 110px; }
+.measuresvg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+.measuresvg line { stroke: #d100d1; stroke-width: 2.5; }
+i.mpt { position: absolute; z-index: 3; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #d100d1; border: 2px solid #fff; pointer-events: none; }
+.mlabel { position: absolute; z-index: 3; transform: translate(-50%, -130%); padding: 2px 8px; border-radius: 4px; background: #d100d1; color: #fff; font-weight: 700; white-space: nowrap; pointer-events: none; }

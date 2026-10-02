@@ -1,11 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { fetchPlan } from './cache.js'
+import { supabase } from './supabase'
+import { LEVELS, THUMB, renderJpeg } from './preview.js'
+import { useMeasure } from './Measure.jsx'
 import { useAnnotations, Markers, AnnotationSheet, DayFilter, AnnotationList } from './Annotations.jsx'
 
+const HD_MAX_DPR = 1.5  // finesse du rendu HD (plus bas = plus rapide)
 const MAX_ZOOM = 20     // zoom maximal (multiple de la vue « Ajuster »)
 
-export default function Viewer({ plan, onClose }) {
+export default function Viewer({ plan, onClose, onChanged }) {
   const versions = [...plan.plan_versions].sort((a, b) => b.created_at.localeCompare(a.created_at))
   const [version, setVersion] = useState(versions.find((v) => v.is_current) || versions[0])
   const [hd, setHd] = useState(false)
@@ -23,6 +27,8 @@ export default function Viewer({ plan, onClose }) {
   const [sheet, setSheet] = useState(null)
   const [activeFolder, setActiveFolder] = useState(null)
   const [drawing, setDrawing] = useState(false)
+  const [building, setBuilding] = useState(false)
+  const lastPdf = useRef(null)
   const [listOpen, setListOpen] = useState(() => window.matchMedia('(min-width: 900px)').matches)
   const ptrs = useRef(new Map())
   const moved = useRef(false)
@@ -39,6 +45,7 @@ export default function Viewer({ plan, onClose }) {
   const css = fit * zoom
   const W = size.w * css
   const H = size.h * css
+  const measure = useMeasure(version, size, page)
 
   useEffect(() => {
     const el = box.current
@@ -51,14 +58,14 @@ export default function Viewer({ plan, onClose }) {
 
   // Aperçu allégé (image) : rapide
   useEffect(() => {
-    if (!useImage) return
+    if (!hasDisplay) return
     let url, off = false
     setImgUrl(null)
     fetchPlan(version.display_paths[page - 1])
       .then((b) => { if (!off) { url = URL.createObjectURL(b); setImgUrl(url) } })
       .catch((e) => { if (!off) setError('Impossible de charger le plan : ' + (e && e.message ? e.message : e)) })
     return () => { off = true; if (url) URL.revokeObjectURL(url) }
-  }, [version, page, useImage])
+  }, [version, page, hasDisplay])
 
   // Haute définition : le PDF d'origine, chargé à la demande
   useEffect(() => {
@@ -86,13 +93,13 @@ export default function Viewer({ plan, onClose }) {
       setDrawing(true)
       const p = await pdf.getPage(page)
       if (off) return
-      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      const dpr = Math.min(window.devicePixelRatio || 1, HD_MAX_DPR)
       const nw = Math.round(Math.min(st.clientWidth, W) * dpr)
       const nh = Math.round(Math.min(st.clientHeight, H) * dpr)
       const buf = document.createElement('canvas') // dessin hors écran : l'ancien rendu reste visible jusqu'à la fin
       buf.width = nw; buf.height = nh
       const vp = p.getViewport({ scale: css * dpr, offsetX: -st.scrollLeft * dpr, offsetY: -st.scrollTop * dpr })
-      task = p.render({ canvasContext: buf.getContext('2d'), viewport: vp })
+      task = p.render({ canvasContext: buf.getContext('2d'), viewport: vp, annotationMode: 0 })
       try { await task.promise } catch (e) {
         if (e && e.name !== 'RenderingCancelledException') { setDrawing(false); setError('Rendu impossible : ' + (e.message || e)) }
         return
@@ -101,11 +108,15 @@ export default function Viewer({ plan, onClose }) {
       c.width = nw; c.height = nh
       c.style.width = nw / dpr + 'px'; c.style.height = nh / dpr + 'px'
       c.getContext('2d').drawImage(buf, 0, 0)
+      c.style.opacity = '1'
       setDrawing(false)
     }
-    const onScroll = () => { clearTimeout(raf); raf = setTimeout(draw, 90) }
+    const hide = () => { if (hasDisplay && canvas.current) canvas.current.style.opacity = '0' } // l'aperçu reste visible dessous
+    const onScroll = () => { hide(); clearTimeout(raf); raf = setTimeout(draw, 150) }
     st.addEventListener('scroll', onScroll)
-    draw()
+    hide()
+    raf = setTimeout(draw, lastPdf.current === pdf ? 150 : 0)
+    lastPdf.current = pdf
     return () => { off = true; if (task) task.cancel(); clearTimeout(raf); st.removeEventListener('scroll', onScroll) }
   }, [pdf, page, zoom, stage, useImage])
 
@@ -152,6 +163,7 @@ export default function Viewer({ plan, onClose }) {
 
   // Glisser = déplacer (souris, clic molette, un doigt) ; deux doigts = zoom + déplacement
   function onPointerDown(e) {
+    moved.current = false
     if (e.target.closest('.marker')) return
     if (e.pointerType === 'mouse' && e.button !== 1) return // souris : seul le clic molette déplace
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -190,6 +202,40 @@ export default function Viewer({ plan, onClose }) {
     st.scrollTop = a.geometry.y * H - st.clientHeight / 2
   }
 
+  async function makePreview() {
+    setBuilding(true); setError('')
+    try {
+      const base = version.file_path.replace(/\.pdf$/, '')
+      const up = async (p, blob) => {
+        const r = await supabase.storage.from('plans').upload(p, blob, { contentType: 'image/jpeg', upsert: true })
+        if (r.error) throw r.error
+      }
+      const paths = []
+      let thumb = null
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const pg = await pdf.getPage(i)
+        const p = `${base}/p${i}.jpg`
+        await up(p, await renderJpeg(pg, LEVELS.elevee))
+        paths.push(p)
+        if (i === 1) { thumb = `${base}/thumb.jpg`; await up(thumb, await renderJpeg(pg, THUMB)) }
+      }
+      const patch = { display_paths: paths, thumb_path: thumb, display_width: LEVELS.elevee.side }
+      const r = await supabase.from('plan_versions').update(patch).eq('id', version.id)
+      if (r.error) throw r.error
+      setVersion({ ...version, ...patch })
+      if (onChanged) onChanged()
+    } catch (e) {
+      setError('Création de l’aperçu impossible : ' + (e && e.message ? e.message : e))
+    }
+    setBuilding(false)
+  }
+
+  function placeMeasure(e) {
+    if (moved.current) return
+    const r = e.currentTarget.getBoundingClientRect()
+    measure.addPoint((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height)
+  }
+
   function placePoint(e) {
     if (moved.current) return
     const r = e.currentTarget.getBoundingClientRect()
@@ -219,21 +265,29 @@ export default function Viewer({ plan, onClose }) {
             <button onClick={() => setPage((n) => Math.min(pages, n + 1))} disabled={page === pages}>›</button>
           </>
         )}
-        <button className={annotate ? 'primary' : ''} onClick={() => setAnnotate((a) => !a)}>Annoter</button>
+        <button className={annotate ? 'primary' : ''} onClick={() => { setAnnotate((a) => !a); measure.setOn(false) }}>Annoter</button>
+        <button className={measure.on ? 'primary' : ''} onClick={() => { measure.setOn(!measure.on); setAnnotate(false) }}>Mesure</button>
         <button onClick={() => setShowAnn((s) => !s)}>{showAnn ? 'Masquer' : 'Afficher'}</button>
         <button onClick={() => setShowDays((s) => !s)}>Calques</button>
         <button onClick={() => setListOpen((o) => !o)}>Liste</button>
         {hasDisplay && <button onClick={() => setHd((h) => !h)}>{hd ? 'Aperçu' : 'HD'}</button>}
+        {!hasDisplay && pdf && <button onClick={makePreview} disabled={building}>Créer l’aperçu</button>}
       </div>
       {annotate && <p className="hint">Touchez le plan pour placer un point.</p>}
+      {measure.panel}
       {showDays && <DayFilter plan={plan} folders={folders} annots={annots} hidden={hidden} setHidden={setHidden} reload={reload} />}
       <div className="body">
       <div className="stage" ref={box} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onMouseDown={(e) => e.button === 1 && e.preventDefault()}>
+        <div className="msgwrap">
         {error && <p className="error msg">{error}</p>}
         {loading && <p className="muted msg">{useImage ? 'Chargement du plan…' : 'Chargement du PDF haute définition…'}</p>}
         {!useImage && drawing && !loading && !error && <p className="muted msg">Rendu en cours…</p>}
-        <div className={'sizer' + (annotate ? ' annotating' : '')} style={{ width: W, height: H }} onClick={annotate ? placePoint : undefined}>
-          {useImage ? (imgUrl && <img src={imgUrl} alt={plan.name} />) : <canvas ref={canvas} />}
+        {building && <p className="muted msg">Création de l’aperçu…</p>}
+        </div>
+        <div className={'sizer' + (annotate || measure.on ? ' annotating' : '')} style={{ width: W, height: H }} onClick={annotate ? placePoint : measure.on ? placeMeasure : undefined}>
+          {hasDisplay && imgUrl && <img src={imgUrl} alt={plan.name} />}
+          {!useImage && <canvas ref={canvas} />}
+          {measure.overlay}
           {showAnn && <Markers annots={annots} hidden={hidden} page={page} onSelect={(a) => setSheet({ annot: a })} />}
         </div>
       </div>
