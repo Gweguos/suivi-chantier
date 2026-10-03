@@ -7,7 +7,8 @@ const ST = {
   bleu: { l: 'Demande d’information', c: '2F7FD1', bg: 'E1EEFB' },
   vert: { l: 'Conforme', c: '2E9E5B', bg: 'E0F3E8' },
 }
-const COLS = [600, 2100, 1700, 1500, 5000, 4538] // total 15438 (A4 paysage, marges 700)
+const COLS = [450, 1600, 2500, 1800, 1200, 2800, 5088] // total 15438 (A4 paysage, marges 700)
+const PHOTO = 144 // côté des photos (px) : 1,6 × l'ancienne taille
 const TOTAL = COLS.reduce((a, b) => a + b, 0)
 
 const INTRO = [
@@ -21,7 +22,7 @@ const INTRO = [
 export const fmtDate = (iso) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}` }
 
 // rows : [{ prob, statut, layer, note, photos: [Uint8Array] }] déjà triées
-export async function buildWord({ projectName, dateIso, dossier, author, rows }) {
+export async function buildWord({ logo, projectName, dateIso, dossier, author, rows }) {
   const D = await import('docx')
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, Header, Footer, PageNumber, AlignmentType, BorderStyle, WidthType, ShadingType, PageOrientation, VerticalAlign } = D
 
@@ -34,7 +35,7 @@ export async function buildWord({ projectName, dateIso, dossier, author, rows })
   // ----- Page de garde -----
   const label = (k, v) => new Paragraph({ spacing: { after: 80 }, children: [run(k + ' : ', { bold: true }), run(v)] })
   const cover = [
-    new Paragraph({ spacing: { after: 600 }, border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: SKY, space: 6 } }, children: [run('ALTIA', { bold: true, size: 32, color: INK }), run('   Acoustique', { size: SIZE, color: GREY })] }),
+    new Paragraph({ spacing: { after: 600 }, border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: SKY, space: 8 } }, children: [new ImageRun({ type: 'png', data: logo, transformation: { width: 190, height: 95 }, altText: { title: 'ALTIA Acoustique', description: 'Logo ALTIA Acoustique', name: 'logo-altia' } })] }),
     new Paragraph({ spacing: { after: 360 }, children: [run(title, { bold: true, size: 32, color: INK })] }),
     label('Projet', projectName),
     label('N° de dossier', dossier || '…………………'),
@@ -55,7 +56,7 @@ export async function buildWord({ projectName, dateIso, dossier, author, rows })
   })
   const head = new TableRow({
     tableHeader: true, cantSplit: true,
-    children: ['N°', 'Problématique', 'Priorité', 'Date', 'Commentaire', 'Photos'].map((h, i) =>
+    children: ['N°', 'Composants', 'Points de contrôle', 'Priorité', 'Date', 'Remarques', 'Photos'].map((h, i) =>
       cell(i, [para(h, { bold: true, color: 'FFFFFF' })], { bg: INK, va: VerticalAlign.CENTER })),
   })
 
@@ -66,17 +67,19 @@ export async function buildWord({ projectName, dateIso, dossier, author, rows })
 
   const body = rows.map((r, i) => {
     const s = ST[r.statut] || ST.rouge
-    const imgs = r.photos.map((data, k) => new ImageRun({ type: 'jpg', data, transformation: { width: 90, height: 90 }, altText: { title: 'Photo', description: 'Photo', name: `photo-${i}-${k}` } }))
+    const imgs = r.photos.map((data, k) => new ImageRun({ type: 'jpg', data, transformation: { width: PHOTO, height: PHOTO }, altText: { title: 'Photo', description: 'Photo', name: `photo-${i}-${k}` } }))
     const photoP = imgs.length
       ? [new Paragraph({ spacing: { after: 0 }, children: imgs.flatMap((im, k) => (k ? [new TextRun({ text: '  ', font: FONT, size: SIZE }), im] : [im])) })]
       : [para('—', { color: '8A97A1' })]
     const cells = [cell(0, [para(String(i + 1), { color: GREY })])]
     if (span[i] !== undefined) cells.push(cell(1, [para(r.prob, { bold: true })], { rowSpan: span[i] }))
+    const lines = (t) => (t || '—').split('\n').map((x) => para(x, { color: t ? undefined : '8A97A1' }))
     cells.push(
-      cell(2, [new Paragraph({ spacing: { after: 0 }, children: [run('● ', { color: s.c }), run(s.l, { bold: true })] })], { bg: s.bg }),
-      cell(3, [para(r.layer)]),
-      cell(4, (r.note || '—').split('\n').map((t) => para(t, { color: r.note ? undefined : '8A97A1' }))),
-      cell(5, photoP),
+      cell(2, lines(r.note)),
+      cell(3, [new Paragraph({ spacing: { after: 0 }, children: [run('● ', { color: s.c }), run(s.l, { bold: true })] })], { bg: s.bg }),
+      cell(4, [para(r.layer)]),
+      cell(5, lines(r.remarks)),
+      cell(6, photoP),
     )
     return new TableRow({ cantSplit: true, children: cells })
   })
@@ -103,7 +106,7 @@ export async function buildWord({ projectName, dateIso, dossier, author, rows })
         headers: { default: new Header({ children: [new Paragraph({
           border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: SKY, space: 4 } },
           tabStops: [{ type: 'right', position: TOTAL }],
-          children: [run('ALTIA', { bold: true, color: INK }), run(`\t${projectName} · ${title}`, { color: GREY })],
+          children: [run(projectName, { bold: true, color: INK }), run(`\t${title}`, { color: GREY })],
         })] }) },
         footers: { default: footer() },
         children: [table],

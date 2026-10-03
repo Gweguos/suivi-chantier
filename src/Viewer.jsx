@@ -33,7 +33,7 @@ export default function Viewer({ plan, onClose, onChanged }) {
   const [showDays, setShowDays] = useState(false)
   const [hidden, setHidden] = useState(new Set())
   const [sheet, setSheet] = useState(null)
-  const [nav, setNav] = useState(null) // parcours d'une problématique : { ids, i, title }
+  const [nav, setNav] = useState(null) // parcours d'un composant : { ids, i, title }
   const focusRef = useRef(null) // annotation à garder visible, hors de la zone couverte par la fiche
   const [tick, setTick] = useState(0)
   const sheetEl = useRef(null)

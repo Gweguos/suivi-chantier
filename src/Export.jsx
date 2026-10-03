@@ -4,6 +4,7 @@ import { fetchPlan } from './cache.js'
 import { STATUTS } from './Annotations.jsx'
 import { buildWord } from './exportWord.js'
 import { nomRedacteur } from './redacteurs.js'
+import logoUrl from './assets/logo-altia.png?url'
 
 const pad = (n) => String(n).padStart(2, '0')
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
@@ -80,7 +81,7 @@ export default function ExportDialog({ project, plans, onClose }) {
     setError('')
     try {
       store.set('dossier:' + project.id, dossier)
-      const probName = (a) => (a.problematique_id ? (data.probs.find((p) => p.id === a.problematique_id) || {}).name || 'Problématique' : 'Générale')
+      const probName = (a) => (a.problematique_id ? (data.probs.find((p) => p.id === a.problematique_id) || {}).name || 'Composant' : 'Générale')
       const sorted = selected.map((a) => ({ a, prob: probName(a), layer: layerOf(a) })).sort((x, y) =>
         (x.prob === 'Générale' ? -1 : y.prob === 'Générale' ? 1 : cmp(x.prob, y.prob)) ||
         (ORDER[x.a.color] ?? 9) - (ORDER[y.a.color] ?? 9) || cmp(x.layer, y.layer) || x.a.created_at.localeCompare(y.a.created_at))
@@ -92,10 +93,11 @@ export default function ExportDialog({ project, plans, onClose }) {
         for (const ph of (a.annotation_photos || []).filter((x) => !x.deleted_at).sort((x, y) => x.created_at.localeCompare(y.created_at))) {
           try { photos.push(await smallJpeg(ph.file_path)) } catch { /* photo illisible : ignorée */ }
         }
-        rows.push({ prob, statut: a.color, layer, note: a.note || '', photos })
+        rows.push({ prob, statut: a.color, layer, note: a.note || '', remarks: a.remarks || '', photos })
       }
       setBusy('Création du document Word…')
-      const blob = await buildWord({ projectName: project.name, dateIso, dossier: dossier.trim(), author, rows })
+      const logo = new Uint8Array(await (await fetch(logoUrl)).arrayBuffer())
+      const blob = await buildWord({ logo, projectName: project.name, dateIso, dossier: dossier.trim(), author, rows })
       const url = URL.createObjectURL(blob)
       const el = document.createElement('a')
       el.href = url

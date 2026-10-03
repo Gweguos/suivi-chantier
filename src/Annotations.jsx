@@ -103,7 +103,7 @@ export function DayFilter({ plan, folders, annots, hidden, setHidden, reload }) 
 
 export function AnnotationList({ annots, probs, hidden, onOpen, onGlobal }) {
   const shown = annots.filter((a) => a.kind !== 'photo' && !hidden.has(a.folder_id))
-  const probName = (id) => (id ? (probs.find((p) => p.id === id) || {}).name || 'Problématique' : 'Générale')
+  const probName = (id) => (id ? (probs.find((p) => p.id === id) || {}).name || 'Composant' : 'Générale')
   return (
     <div className="annlist">
       <button onClick={onGlobal}>+ Annotation globale</button>
@@ -228,6 +228,7 @@ function PhotoPicker({ onAdd, uploading }) {
 // Fiche d'annotation : tout s'enregistre automatiquement
 export function AnnotationSheet({ sugg, plan, version, draft, annot, folders, probs, nav, rootRef, activeFolder, onLayer, reload, patch, drop, onClose }) {
   const [note, setNote] = useState(annot ? annot.note || '' : '')
+  const [remarks, setRemarks] = useState(annot ? annot.remarks || '' : '')
   const [color, setColor] = useState(annot && STATUTS[annot.color] ? annot.color : 'rouge')
   const isPhoto = annot ? annot.kind === 'photo' : !!(draft && draft.photo)
   const [probId, setProbId] = useState(annot && annot.problematique_id ? annot.problematique_id : '')
@@ -243,7 +244,7 @@ export function AnnotationSheet({ sugg, plan, version, draft, annot, folders, pr
   const exists = useRef(!!annot)
   const removed = useRef(false)
   const latest = useRef({})
-  latest.current = { note, color, probId, folderId }
+  latest.current = { note, remarks, color, probId, folderId }
   const photosRef = useRef(photos)
   const timer = useRef(null)
   const chain = useRef(Promise.resolve())
@@ -260,7 +261,7 @@ export function AnnotationSheet({ sugg, plan, version, draft, annot, folders, pr
     try {
       const fid = v.folderId || (await createLayer(f.plan, 'Calque 1'))
       if (!v.folderId) setFolderId(fid)
-      const fields = f.isPhoto ? { folder_id: fid } : { note: v.note.trim() || null, color: v.color, folder_id: fid, problematique_id: v.probId || null }
+      const fields = f.isPhoto ? { folder_id: fid } : { note: v.note.trim() || null, remarks: v.remarks.trim() || null, color: v.color, folder_id: fid, problematique_id: v.probId || null }
       if (exists.current) {
         const r = await supabase.from('annotations').update(fields).eq('id', id.current)
         if (r.error) throw r.error
@@ -269,7 +270,7 @@ export function AnnotationSheet({ sugg, plan, version, draft, annot, folders, pr
         const row = {
           id: id.current, project_id: f.plan.project_id, plan_version_id: f.version.id,
           page: f.draft.page || 1, kind: f.draft.global ? 'global' : f.isPhoto ? 'photo' : 'point', color: v.color,
-          geometry: f.draft.global ? null : { x: f.draft.x, y: f.draft.y }, ...fields, ...(f.isPhoto ? { note: null, problematique_id: null } : {}),
+          geometry: f.draft.global ? null : { x: f.draft.x, y: f.draft.y }, ...fields, ...(f.isPhoto ? { note: null, remarks: null, problematique_id: null } : {}),
         }
         const r = await supabase.from('annotations').insert(row)
         if (r.error) throw r.error
@@ -291,12 +292,14 @@ export function AnnotationSheet({ sugg, plan, version, draft, annot, folders, pr
   }, [])
 
   const changeNote = (v) => { setNote(v); latest.current = { ...latest.current, note: v }; schedule(700) }
+  const changeRemarks = (v) => { setRemarks(v); latest.current = { ...latest.current, remarks: v }; schedule(700) }
   const changeColor = (v) => { setColor(v); latest.current = { ...latest.current, color: v }; schedule(150) }
   const changeProb = (v) => { setProbId(v); latest.current = { ...latest.current, probId: v }; schedule(150) }
   const changeFolder = (v) => { setFolderId(v); latest.current = { ...latest.current, folderId: v }; schedule(150) }
 
-  // insère une suggestion à l'endroit du curseur
-  function pickSuggestion(t) {
+  // insère un point de contrôle suggéré à l'endroit du curseur (+ sa remarque automatique si activée)
+  function pickSuggestion(sg) {
+    const t = sg.text
     const el = noteRef.current
     const a = el ? el.selectionStart : note.length, b = el ? el.selectionEnd : note.length
     const before = note.slice(0, a), after = note.slice(b)
@@ -304,6 +307,10 @@ export function AnnotationSheet({ sugg, plan, version, draft, annot, folders, pr
     changeNote(before + lead + t + after)
     const pos = (before + lead + t).length
     requestAnimationFrame(() => { if (el) { el.focus(); el.setSelectionRange(pos, pos) } })
+    if (sugg && sugg.autoRemarks && sg.remark) {
+      const r = latest.current.remarks || ''
+      if (!r.includes(sg.remark)) changeRemarks(r ? r + '\n' + sg.remark : sg.remark)
+    }
   }
 
   async function addPhoto(blob) {
@@ -362,16 +369,16 @@ export function AnnotationSheet({ sugg, plan, version, draft, annot, folders, pr
         <button onClick={onClose}>Fermer</button>
       </div>
       {!isPhoto && (
-        <label>Problématique
+        <label>Composants
           <select value={probId} onChange={async (e) => {
             if (e.target.value !== '__new') { changeProb(e.target.value); return }
-            const n = window.prompt('Nom de la nouvelle problématique (propre à ce projet)')
+            const n = window.prompt('Nom du nouveau composant (propre à ce projet)')
             if (!n || !n.trim()) return
-            try { const nid = await createProb(plan, n.trim()); await reload(); changeProb(nid) } catch { setError('Création de la problématique impossible.') }
+            try { const nid = await createProb(plan, n.trim()); await reload(); changeProb(nid) } catch { setError('Création du composant impossible.') }
           }}>
             <option value="">Générale</option>
             {probs.map((p) => <option key={p.id} value={p.id}>{p.name}{p.project_id ? ' (projet)' : ''}</option>)}
-            <option value="__new">+ Nouvelle problématique…</option>
+            <option value="__new">+ Nouveau composant…</option>
           </select>
         </label>
       )}
@@ -384,8 +391,14 @@ export function AnnotationSheet({ sugg, plan, version, draft, annot, folders, pr
         ))}
       </div>
       )}
-      {!isPhoto && <label>Commentaire<textarea ref={noteRef} rows="2" value={note} onChange={(e) => changeNote(e.target.value)} /></label>}
+      {!isPhoto && <label>Points de contrôle<textarea ref={noteRef} rows="2" value={note} onChange={(e) => changeNote(e.target.value)} /></label>}
       {!isPhoto && sugg && <SuggestionChips sugg={sugg} probId={probId} note={note} onPick={pickSuggestion} onManage={() => setManaging(true)} />}
+      {!isPhoto && (
+        <>
+          <label>Remarques<textarea rows="2" value={remarks} onChange={(e) => changeRemarks(e.target.value)} /></label>
+          {sugg && <label className="check autorem"><input type="checkbox" checked={sugg.autoRemarks} onChange={(e) => sugg.setAutoRemarks(e.target.checked)} />Remplir automatiquement les remarques</label>}
+        </>
+      )}
       {managing && <SuggestionsManager sugg={sugg} probs={probs} initialProb={probId} onClose={() => setManaging(false)} />}
       {photos.length > 0 && (
         <div className="photos">
