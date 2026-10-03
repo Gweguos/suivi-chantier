@@ -5,6 +5,7 @@ import { supabase } from './supabase'
 import { LEVELS, THUMB, renderJpeg } from './preview.js'
 import { useMeasure } from './Measure.jsx'
 import { CameraIcon, PlusIcon, MinusIcon, FitIcon, PinIcon, RulerIcon, EyeIcon, EyeOffIcon, LayersIcon, ListIcon, ChevronUpIcon, ChevronDownIcon, ImageIcon } from './ui.jsx'
+import { useSuggestions } from './Suggestions.jsx'
 import { useAnnotations, Markers, AnnotationSheet, DayFilter, AnnotationList, STATUTS } from './Annotations.jsx'
 
 const HD_MAX_DPR = 1.5  // finesse du rendu HD (plus bas = plus rapide)
@@ -24,7 +25,8 @@ export default function Viewer({ plan, onClose, onChanged }) {
   const [zoom, setZoom] = useState(1)
   const [stage, setStage] = useState({ w: 0, h: 0 })
   const [error, setError] = useState('')
-  const { annots, folders, probs, reload } = useAnnotations(plan, version)
+  const { annots, folders, probs, reload, patch, drop } = useAnnotations(plan, version)
+  const sugg = useSuggestions()
   const [annotate, setAnnotate] = useState(false)
   const [photoMode, setPhotoMode] = useState(false)
   const [showAnn, setShowAnn] = useState(true)
@@ -36,13 +38,8 @@ export default function Viewer({ plan, onClose, onChanged }) {
   const [tick, setTick] = useState(0)
   const sheetEl = useRef(null)
   const [pad, setPad] = useState({ r: 0, b: 0 })
-  const dirtyRef = useRef(false)
-  // Avertit avant d'abandonner une fiche modifiée mais non enregistrée
-  function guard(fn) {
-    if (dirtyRef.current && !window.confirm('Vous avez des modifications non enregistrées.\n\nAnnuler : revenir à la fiche pour l’enregistrer.\nOK : abandonner les modifications.')) return
-    dirtyRef.current = false
-    fn()
-  }
+  // La fiche s'enregistre toute seule : plus d'avertissement lors d'un changement de fenêtre
+  const guard = (fn) => fn()
   const [activeFolder, setActiveFolder] = useState(null)
   const [drawing, setDrawing] = useState(false)
   const [building, setBuilding] = useState(false)
@@ -399,9 +396,9 @@ export default function Viewer({ plan, onClose, onChanged }) {
         </aside>
       )}
       {sheet && (
-        <AnnotationSheet key={sheet.annot ? sheet.annot.id : 'new' + JSON.stringify(sheet.draft)} plan={plan} version={version} draft={sheet.draft} annot={sheet.annot} folders={folders} probs={probs} activeFolder={activeFolder} onLayer={setActiveFolder} reload={reload}
+        <AnnotationSheet sugg={sugg} key={sheet.annot ? sheet.annot.id : 'new' + JSON.stringify(sheet.draft)} plan={plan} version={version} draft={sheet.draft} annot={sheet.annot} folders={folders} probs={probs} activeFolder={activeFolder} onLayer={setActiveFolder} reload={reload}
           nav={nav && { title: nav.title, index: nav.i, total: nav.ids.length, onPrev: () => goTo(nav.i - 1), onNext: () => goTo(nav.i + 1) }}
-          rootRef={sheetEl} dirtyRef={dirtyRef} onClose={() => guard(closeSheet)} onSaved={() => { dirtyRef.current = false; closeSheet(); reload() }} />
+          rootRef={sheetEl} patch={patch} drop={drop} onClose={closeSheet} />
       )}
       </div>
     </div>

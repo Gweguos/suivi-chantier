@@ -26,3 +26,4 @@ export const ListIcon = icon('M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 1
 export const ChevronUpIcon = icon('M6 15l6-6 6 6')
 export const ChevronDownIcon = icon('M6 9l6 6 6-6')
 export const ImageIcon = icon('M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M9 9.5h.01')
+export const FilePlusIcon = icon('M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 11v6M9 14h6')

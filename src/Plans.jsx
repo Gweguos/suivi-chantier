@@ -5,7 +5,8 @@ import { supabase } from './supabase'
 import { fetchPlan, forgetPlan } from './cache.js'
 import { LEVELS, THUMB, renderJpeg } from './preview.js'
 import Viewer from './Viewer.jsx'
-import { IconButton, TrashIcon, PencilIcon } from './ui.jsx'
+import ExportDialog from './Export.jsx'
+import { IconButton, TrashIcon, PencilIcon, FilePlusIcon } from './ui.jsx'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
 
@@ -162,6 +163,7 @@ export default function Plans({ project }) {
   const [form, setForm] = useState(null)
   const [open, setOpen] = useState(null)
   const [deleting, setDeleting] = useState(null)
+  const [exporting, setExporting] = useState(false)
 
   async function load() {
     const { data, error } = await supabase.from('plans').select('*, plan_versions(*)').eq('project_id', project.id).order('position', { ascending: true, nullsFirst: true }).order('name')
@@ -200,7 +202,10 @@ export default function Plans({ project }) {
       {form ? (
         <ImportForm project={project} plan={form.plan} nextPosition={Math.max(0, ...(plans || []).map((p) => p.position || 0))} onCancel={() => setForm(null)} onDone={(ok) => { if (ok) setForm(null); load() }} />
       ) : (
-        <button className="primary" onClick={() => setForm({})}>Importer un plan</button>
+        <div className="row">
+          <button className="primary" onClick={() => setForm({})}>Importer un plan</button>
+          <button onClick={() => setExporting(true)} disabled={!plans || plans.length === 0}>Exporter (Word)</button>
+        </div>
       )}
       {error && <p className="error">{error}</p>}
       {plans === null ? <p className="muted">Chargement…</p> : plans.length === 0 ? (
@@ -218,8 +223,8 @@ export default function Plans({ project }) {
                     <small>{cur ? `Indice ${cur.version_label} · ${cur.page_count} page${cur.page_count > 1 ? 's' : ''}` : 'Sans fichier'} · {p.plan_versions.length} version{p.plan_versions.length > 1 ? 's' : ''}</small>
                   </div>
                 </button>
-                <div className="row">
-                  <button onClick={() => setForm({ plan: p })}>Nouvelle version</button>
+                <div className="rowtools">
+                  <IconButton label="Nouvelle version du plan" onClick={() => setForm({ plan: p })}><FilePlusIcon /></IconButton>
                   <IconButton label="Renommer le plan" onClick={() => renamePlan(p)}><PencilIcon /></IconButton>
                   <IconButton label="Supprimer le plan" danger disabled={deleting === p.id} onClick={() => removePlan(p)}><TrashIcon /></IconButton>
                 </div>
@@ -228,6 +233,7 @@ export default function Plans({ project }) {
           })}
         </ul>
       )}
+      {exporting && <ExportDialog project={project} plans={plans} onClose={() => setExporting(false)} />}
       {open && <Viewer plan={open} onClose={() => setOpen(null)} onChanged={load} />}
     </section>
   )

@@ -78,7 +78,13 @@ button.danger { color: var(--error); border-color: rgba(255, 138, 128, .4); }
 .login h1 { font-size: 1.5rem; margin-bottom: 6px; }
 .login form { display: grid; gap: 12px; padding: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .plans { display: grid; gap: 10px; }
-.planrow { display: grid; gap: 6px; }
+.planrow { position: relative; display: grid; }
+.planrow .item { padding-right: 112px; }
+.rowtools { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: flex; gap: 0; }
+.rowtools button.icon { min-width: 32px; width: 32px; min-height: 32px; height: 32px; padding: 0; border: 0; background: transparent; color: var(--muted); opacity: .75; }
+.rowtools button.icon svg { width: 18px; height: 18px; }
+.rowtools button.icon:hover:not(:disabled) { opacity: 1; background: var(--surface-2); color: var(--ink); }
+.rowtools button.icon.danger:hover:not(:disabled) { color: var(--error); }
 .item.withthumb { grid-template-columns: 56px 1fr; column-gap: 12px; align-items: center; }
 .thumb { width: 56px; height: 42px; object-fit: cover; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; }
 .member { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
@@ -188,3 +194,23 @@ i.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; ma
   button.fab { width: 36px; height: 36px; }
   .icon { min-width: 34px; }
 }
+
+/* ---------- Export Word ---------- */
+.exportbox { width: min(440px, calc(100vw - 24px)); max-width: none; max-height: calc(100vh - 24px); overflow: auto; }
+.exportbox fieldset { display: grid; gap: 0; margin: 0; padding: 6px 10px 8px; border: 1px solid var(--line); border-radius: var(--radius); }
+.exportbox legend { padding: 0 6px; color: var(--muted); font-weight: 600; }
+.exportbox .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.exportbox .small { margin: 0; font-size: .9em; }
+
+/* ---------- Suggestions de commentaires ---------- */
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: -3px; }
+button.chip { min-height: 0; padding: 3px 9px; border: 1px dashed var(--line); border-radius: 14px; background: transparent; color: var(--muted); font-size: .88em; font-weight: 400; text-align: left; }
+button.chip:hover { color: var(--ink); border-color: var(--sky); }
+button.chip.admin { border-style: solid; color: var(--sky); }
+.suggbox { width: min(420px, calc(100vw - 24px)); max-width: none; max-height: calc(100vh - 24px); overflow: auto; }
+.suggrow { display: flex; align-items: center; gap: 4px; padding: 6px 4px 6px 10px; background: var(--field); border: 1px solid var(--line); border-radius: 6px; }
+.suggrow span { flex: 1; }
+.suggrow .icon { min-width: 32px; min-height: 32px; }
+
+.savestate { color: var(--muted); font-size: .85em; white-space: nowrap; }
+.pending .ph, .pending a { display: block; }
